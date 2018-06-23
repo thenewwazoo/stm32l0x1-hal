@@ -87,8 +87,8 @@ pub struct Output<MODE, PUMODE> {
 pub enum PinSpeed {
     Low = 0,
     Medium,
-    Fast,
     High,
+    VeryHigh,
 }
 
 macro_rules! impl_parts {
@@ -391,11 +391,6 @@ pub struct OSPEEDR<GPIO>(PhantomData<GPIO>);
 /// Opaque BRR register
 pub struct BRR<GPIO>(PhantomData<GPIO>);
 
-impl_parts!(
-    GPIOA, gpioa;
-    GPIOB, gpiob;
-    );
-
 macro_rules! impl_af {
     ( [$($af:ident, $i:expr;)*] ) => {
         $(
@@ -415,22 +410,14 @@ pub trait AltFun {
     const NUM: u32;
 }
 
-/*
-/// Alternate function 0 (type state)
-pub struct AF0;
-impl AltFun for AF0 {
-const NUM: u32 = 0;
-}
-*/
-
 impl_af!([AF0, 0; AF1, 1; AF2, 2; AF3, 3; AF4, 4; AF5, 5; AF6, 6; AF7, 7; AF8, 8; AF9, 9; AF10, 10; AF11, 11; AF12, 12; AF13, 13; AF14, 14; AF15, 15;]);
 
-// Each I/O pin (except PH3 for STM32L496xx/4A6xx devices) has a multiplexer with up to
-// sixteen alternate function inputs (AF0 to AF15) that can be configured through the
-// GPIOx_AFRL (for pin 0 to 7) and GPIOx_AFRH (for pin 8 to 15) registers
-//
-// The GPIO ports (and pins) enumerated here are exposed on all package variants of the STM32L4x6.
-// Larger chips have more pins, and so have additional definitions in their respective modules.
+impl_parts!(
+    GPIOA, gpioa;
+    GPIOB, gpiob;
+    GPIOC, gpiob; // not a typo
+    );
+
 impl_gpio!(A, GPIOA, iopaen, gpioarst,
            AFRL: [PA0, 0; PA1, 1; PA2, 2; PA3, 3; PA4, 4; PA5, 5; PA6, 6; PA7, 7;],
            AFRH: [PA8, 8; PA9, 9; PA10, 10; PA11, 11; PA12, 12; PA13, 13; PA14, 14; PA15, 15; ]
@@ -438,4 +425,8 @@ impl_gpio!(A, GPIOA, iopaen, gpioarst,
 impl_gpio!(B, GPIOB, iopben, gpiobrst,
            AFRL: [PB0, 0; PB1, 1; PB2, 2; PB3, 3; PB4, 4; PB5, 5; PB6, 6; PB7, 7;],
            AFRH: [PB8, 8; PB9, 9; PB10, 10; PB11, 11; PB12, 12; PB13, 13; PB14, 14; PB15, 15; ]
+          );
+impl_gpio!(C, GPIOC, iopcen, gpiocrst,
+           AFRL: [PC0, 0; PC1, 1; PC2, 2; PC3, 3; PC4, 4; PC5, 5; PC6, 6; PC7, 7;],
+           AFRH: [PC8, 8; PC9, 9; PC10, 10; PC11, 11; PC12, 12; PC13, 13; PC14, 14; PC15, 15; ]
           );

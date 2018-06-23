@@ -23,7 +23,7 @@
 //! a source (`PLLClkSource`), but you compose the types similarly.
 
 use super::rcc;
-//use time::Hertz;
+use time::Hertz;
 use cortex_m::asm;
 
 use power::{Power, VCoreRange};
@@ -377,7 +377,6 @@ impl InputClock for PLLClkSource {
     }
 }
 
-/*
 pub enum USARTClkSource {
     PCLK(PeripheralClock),
     /// U(S)ART-specific peripheral clock (PCLK1, PCLK2)
@@ -399,4 +398,3 @@ impl InputClock for PeripheralClock {
         }
     }
 }
-*/

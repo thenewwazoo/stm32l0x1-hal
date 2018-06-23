@@ -1,5 +1,7 @@
 //#![deny(missing_docs)]
 //#![deny(warnings)]
+#![feature(never_type)]
+#![feature(unsize)]
 #![no_std]
 
 extern crate cast;
@@ -14,3 +16,4 @@ pub mod time;
 pub mod rcc;
 pub mod power;
 pub mod gpio;
+pub mod serial;

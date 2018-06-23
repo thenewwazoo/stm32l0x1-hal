@@ -34,7 +34,10 @@ impl RccExt for RCC {
     fn constrain(self) -> Rcc {
         Rcc {
             ahb: AHB(()),
+            apb1: APB1(()),
+            apb2: APB2(()),
             iop: IOP(()),
+            ccipr: CCIPR(()),
             cfgr: CFGR {
                 hclk: None,
                 pclk1: None,
@@ -51,7 +54,15 @@ impl RccExt for RCC {
 pub struct Rcc {
     /// AMBA High-performance Bus (AHB) registers.
     pub ahb: AHB,
+    /// APB1 peripheral registers.
+    pub apb1: APB1,
+    /// APB2 peripheral registers.
+    pub apb2: APB2,
+    /// Peripherals independent clock configuration register
+    pub ccipr: CCIPR,
+    /// HW clock configuration.
     pub cfgr: CFGR,
+    /// GPIO port configuration
     pub iop: IOP,
 }
 
@@ -74,6 +85,33 @@ impl AHB {
     }
 }
 
+/// APB1 register access
+pub struct APB1(());
+impl APB1 {
+    /// Access APB1RSTR1 reset register
+    pub fn rstr(&mut self) -> &rcc::APB1RSTR {
+        unsafe { &(*RCC::ptr()).apb1rstr }
+    }
+
+    /// Access APB1ENR reset register
+    pub fn enr(&mut self) -> &rcc::APB1ENR {
+        unsafe { &(*RCC::ptr()).apb1enr }
+    }
+}
+
+/// APB2 register access
+pub struct APB2(());
+impl APB2 {
+    /// Access APB2RSTR reset register
+    pub fn rstr(&mut self) -> &rcc::APB2RSTR {
+        unsafe { &(*RCC::ptr()).apb2rstr }
+    }
+    /// Access APB2ENR reset register
+    pub fn enr(&mut self) -> &rcc::APB2ENR {
+        unsafe { &(*RCC::ptr()).apb2enr }
+    }
+}
+
 pub struct IOP(());
 impl IOP {
     pub fn enr(&mut self) -> &rcc::IOPENR {
@@ -88,6 +126,14 @@ impl IOP {
         unsafe { &(*RCC::ptr()).iopsmen }
     }
 
+}
+
+pub struct CCIPR(());
+impl CCIPR {
+    #[inline]
+    pub fn inner(&mut self) -> &rcc::CCIPR {
+        unsafe { &(*RCC::ptr()).ccipr }
+    }
 }
 
 pub struct CFGR {

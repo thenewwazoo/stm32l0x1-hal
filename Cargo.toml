@@ -28,6 +28,7 @@ features = ["unproven"]
 [features]
 default = ["rt"]
 rt = ["stm32l0x1/rt"]
+STM32L011K4 = []
 
 [profile]
 
