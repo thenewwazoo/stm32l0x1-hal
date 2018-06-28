@@ -49,18 +49,15 @@ impl Constrain<Power> for PWR {
 }
 
 impl Power {
-
     pub fn set_vddrange(&mut self, vdd_range: VDDRange) {
         self.vdd_range = vdd_range;
     }
 
     pub fn set_vcore_range(&mut self, vcore_range: VCoreRange) -> Result<(), PowerError> {
         match vcore_range {
-            VCoreRange::Range1 => {
-                match self.vdd_range {
-                    VDDRange::Low => Err(PowerError::LowVDD),
-                    _ => Ok(self.cr.set_vcore_range(vcore_range)),
-                }
+            VCoreRange::Range1 => match self.vdd_range {
+                VDDRange::Low => Err(PowerError::LowVDD),
+                _ => Ok(self.cr.set_vcore_range(vcore_range)),
             },
             _ => Ok(self.cr.set_vcore_range(vcore_range)),
         }
@@ -69,7 +66,6 @@ impl Power {
     pub fn vcore_range(&self) -> VCoreRange {
         self.cr.get_vcore_range()
     }
-
 }
 
 pub struct CR(());
@@ -83,12 +79,11 @@ impl CR {
 
     pub fn set_vcore_range(&mut self, vcore_range: VCoreRange) {
         self.inner().modify(|_, w| unsafe {
-            w.vos().bits(
-                match vcore_range {
-                    VCoreRange::Range1 => 0b01,
-                    VCoreRange::Range2 => 0b10,
-                    VCoreRange::Range3 => 0b11,
-                })
+            w.vos().bits(match vcore_range {
+                VCoreRange::Range1 => 0b01,
+                VCoreRange::Range2 => 0b10,
+                VCoreRange::Range3 => 0b11,
+            })
         });
     }
 
@@ -106,7 +101,6 @@ impl CR {
 pub struct CSR(());
 
 impl CSR {
-
     /// Return a raw pointer to the CSR register
     #[inline]
     pub fn csr(&mut self) -> &pwr::CSR {

@@ -1,14 +1,14 @@
 //! Serial
 
-use core::ptr;
 use core::marker::PhantomData;
+use core::ptr;
 
 use hal::serial;
 use nb;
-use stm32l0x1::{USART2, LPUART1};
+use stm32l0x1::{LPUART1, USART2};
 
+use rcc::clocking::{InputClock, USARTClkSource};
 use rcc::{APB1, CCIPR};
-use rcc::clocking::{USARTClkSource, InputClock};
 use time::Bps;
 
 use cortex_m::asm;
@@ -43,7 +43,8 @@ pub enum Error {
     Overrun,
     /// Parity check error
     Parity,
-    #[doc(hidden)] _Extensible,
+    #[doc(hidden)]
+    _Extensible,
 }
 
 // FIXME these should be "closed" traits

@@ -23,8 +23,8 @@
 //! a source (`PLLClkSource`), but you compose the types similarly.
 
 use super::rcc;
-use time::Hertz;
 use cortex_m::asm;
+use time::Hertz;
 
 use power::{Power, VCoreRange};
 
@@ -65,10 +65,14 @@ pub struct HighSpeedInternal16RC;
 impl AutoConf for HighSpeedInternal16RC {
     /// Applies the selection options to the configuration registers and turns the clock on
     fn configure(self, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
-        rcc.icscr.modify(|_,w| unsafe { w.hsi16trim().bits(0x10) }); // 16 is the default value
+        rcc.icscr.modify(|_, w| unsafe { w.hsi16trim().bits(0x10) }); // 16 is the default value
         rcc.cr.modify(|_, w| w.hsi16on().set_bit());
         while rcc.cr.read().hsi16rdyf().bit_is_clear() {}
-        ConfiguredClock{ f: self.freq(), bits: 0b01, pwr: pwr }
+        ConfiguredClock {
+            f: self.freq(),
+            bits: 0b01,
+            pwr: pwr,
+        }
     }
 }
 
@@ -111,10 +115,15 @@ impl AutoConf for MediumSpeedInternalRC {
     /// Configures the MSI to the specified frequency, and enables hardware
     /// auto-calibration if requested by enabling (and waiting for) the LSE.
     fn configure(self, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
-        rcc.icscr.modify(|_, w| unsafe { w.msirange().bits(self.bits()) });
+        rcc.icscr
+            .modify(|_, w| unsafe { w.msirange().bits(self.bits()) });
         while rcc.cr.read().msirdy().bit_is_clear() {}
 
-        ConfiguredClock{ f: self.freq(), bits: 0b00, pwr: pwr }
+        ConfiguredClock {
+            f: self.freq(),
+            bits: 0b00,
+            pwr: pwr,
+        }
     }
 }
 
@@ -137,7 +146,7 @@ impl InputClock for HighSpeedExternalOSC {
 
 impl HighSpeedExternalOSC {
     pub fn new(f: u32) -> Self {
-        HighSpeedExternalOSC{ f }
+        HighSpeedExternalOSC { f }
     }
 }
 
@@ -146,17 +155,23 @@ impl AutoConf for HighSpeedExternalOSC {
     ///
     /// (Should this also configure the pin?)
     fn configure(self, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
-
-        assert!(self.freq() < match pwr.vcore_range() {
-            VCoreRange::Range1 => 32_000_000, // 24 MHz max for crystal!!!
-            VCoreRange::Range2 => 16_000_000,
-            VCoreRange::Range3 => 8_000_000,
-        }, "HSE speed too high for VCore");
+        assert!(
+            self.freq() < match pwr.vcore_range() {
+                VCoreRange::Range1 => 32_000_000, // 24 MHz max for crystal!!!
+                VCoreRange::Range2 => 16_000_000,
+                VCoreRange::Range3 => 8_000_000,
+            },
+            "HSE speed too high for VCore"
+        );
 
         rcc.cr.modify(|_, w| w.hseon().set_bit());
         while rcc.cr.read().hserdy().bit_is_clear() {}
 
-        ConfiguredClock { f: self.freq(), bits: 0b10, pwr: pwr }
+        ConfiguredClock {
+            f: self.freq(),
+            bits: 0b10,
+            pwr: pwr,
+        }
     }
 }
 
@@ -212,10 +227,10 @@ impl PllMul {
     /// Return bits suitable for RCC_CFGR.PLLMUL
     pub fn bits(self) -> u8 {
         match self {
-            PllMul::Mul3  => 0b0000,
-            PllMul::Mul4  => 0b0001,
-            PllMul::Mul6  => 0b0010,
-            PllMul::Mul8  => 0b0011,
+            PllMul::Mul3 => 0b0000,
+            PllMul::Mul4 => 0b0001,
+            PllMul::Mul6 => 0b0010,
+            PllMul::Mul8 => 0b0011,
             PllMul::Mul12 => 0b0100,
             PllMul::Mul16 => 0b0101,
             PllMul::Mul24 => 0b0110,
@@ -264,7 +279,6 @@ impl PLLClkOutput {
     ///
     /// Panics if the configuration is invalid.
     pub fn new(src: PLLClkSource, mul: PllMul, div: PllDiv) -> Self {
-
         if let PLLClkSource::HSE(ref s) = src {
             if s.freq() < 2_000_000 {
                 panic!("HSE clock {} too slow to drive PLL", s.freq());
@@ -273,17 +287,21 @@ impl PLLClkOutput {
 
         let bits = match src {
             PLLClkSource::HSI16(_) => 0b0,
-            PLLClkSource::HSE(_)  => 0b1,
+            PLLClkSource::HSE(_) => 0b1,
         };
 
-        PLLClkOutput { src, bits, div, mul }
+        PLLClkOutput {
+            src,
+            bits,
+            div,
+            mul,
+        }
     }
 }
 
 impl AutoConf for PLLClkOutput {
     /// AutoConf the PLL to enable the PLLCLK output. Also configures the PLL's source clock
     fn configure(self, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
-
         asm::bkpt();
 
         // Configure the PLL's input
@@ -331,7 +349,11 @@ impl AutoConf for PLLClkOutput {
         rcc.cr.modify(|_, w| w.pllon().set_bit());
         while rcc.cr.read().pllrdy().bit_is_clear() {}
 
-        ConfiguredClock { f: f, bits: 0b11, pwr: pwr }
+        ConfiguredClock {
+            f: f,
+            bits: 0b11,
+            pwr: pwr,
+        }
     }
 }
 
@@ -358,12 +380,20 @@ impl AutoConf for PLLClkSource {
         match self {
             PLLClkSource::HSI16(s) => {
                 let cfg = s.configure(rcc, pwr);
-                ConfiguredClock{ f: cfg.f, bits: 0b0, pwr: cfg.release() }
-            },
+                ConfiguredClock {
+                    f: cfg.f,
+                    bits: 0b0,
+                    pwr: cfg.release(),
+                }
+            }
             PLLClkSource::HSE(s) => {
                 let cfg = s.configure(rcc, pwr);
-                ConfiguredClock{ f: cfg.f, bits: 0b1, pwr: cfg.release() }
-            },
+                ConfiguredClock {
+                    f: cfg.f,
+                    bits: 0b1,
+                    pwr: cfg.release(),
+                }
+            }
         }
     }
 }

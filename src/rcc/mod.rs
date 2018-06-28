@@ -1,9 +1,8 @@
-
-use stm32l0x1::{rcc, RCC};
-use flash::ACR;
-use super::time::Hertz;
 use super::power::{Power, VCoreRange};
+use super::time::Hertz;
+use flash::ACR;
 use rcc::clocking::AutoConf;
+use stm32l0x1::{rcc, RCC};
 
 pub mod clocking;
 
@@ -21,8 +20,6 @@ pub mod clocking;
 // When the oscillator is configured in a user external clock mode, only the OSC_IN, CK_IN or
 // OSC32_IN pin is reserved for clock input and the OSC_OUT or OSC32_OUT pin can still be used as
 // normal GPIO.
-
-
 
 /// Extension trait that constrains the `RCC` peripheral
 pub trait RccExt {
@@ -42,9 +39,9 @@ impl RccExt for RCC {
                 hclk: None,
                 pclk1: None,
                 pclk2: None,
-                sysclk: clocking::SysClkSource::MSI(
-                    clocking::MediumSpeedInternalRC::new(2_097_000)
-                    ),
+                sysclk: clocking::SysClkSource::MSI(clocking::MediumSpeedInternalRC::new(
+                    2_097_000,
+                )),
             },
         }
     }
@@ -125,7 +122,6 @@ impl IOP {
     pub fn smenr(&mut self) -> &rcc::IOPSMEN {
         unsafe { &(*RCC::ptr()).iopsmen }
     }
-
 }
 
 pub struct CCIPR(());
@@ -172,8 +168,7 @@ impl CFGR {
         self
     }
 
-    pub fn sysclk(mut self, src: clocking::SysClkSource) -> Self
-    {
+    pub fn sysclk(mut self, src: clocking::SysClkSource) -> Self {
         self.sysclk = src;
         self
     }
@@ -197,17 +192,17 @@ impl CFGR {
                 } else {
                     acr.acr().modify(|_, w| w.latency().clear_bit());
                 }
-            },
+            }
             VCoreRange::Range2 => {
                 if acr.acr().read().latency().bit() {
                     // 1 wait state => max 16 MHz
                 } else {
                     // 0 wait states => max 8 MHz
                 }
-            },
+            }
             VCoreRange::Range3 => {
                 // max 4.2 MHz
-            },
+            }
         }
 
         let hpre_bits = self.hclk
@@ -256,8 +251,14 @@ impl CFGR {
 
         let rcc = unsafe { &*RCC::ptr() };
         // use HSI as source
-        rcc.cfgr
-            .write(|w| unsafe { w.ppre1().bits(ppre1_bits).hpre().bits(hpre_bits).sw().bits(bits) });
+        rcc.cfgr.write(|w| unsafe {
+            w.ppre1()
+                .bits(ppre1_bits)
+                .hpre()
+                .bits(hpre_bits)
+                .sw()
+                .bits(bits)
+        });
 
         Clocks {
             hclk: Hertz(hclk),
@@ -305,5 +306,4 @@ impl Clocks {
     pub fn release(self) -> Power {
         self.pwr
     }
-
 }
