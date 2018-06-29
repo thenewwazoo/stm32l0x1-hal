@@ -71,7 +71,7 @@ impl AutoConf for HighSpeedInternal16RC {
         ConfiguredClock {
             f: self.freq(),
             bits: 0b01,
-            pwr: pwr,
+            pwr,
         }
     }
 }
@@ -122,7 +122,7 @@ impl AutoConf for MediumSpeedInternalRC {
         ConfiguredClock {
             f: self.freq(),
             bits: 0b00,
-            pwr: pwr,
+            pwr,
         }
     }
 }
@@ -170,7 +170,7 @@ impl AutoConf for HighSpeedExternalOSC {
         ConfiguredClock {
             f: self.freq(),
             bits: 0b10,
-            pwr: pwr,
+            pwr,
         }
     }
 }
@@ -349,11 +349,7 @@ impl AutoConf for PLLClkOutput {
         rcc.cr.modify(|_, w| w.pllon().set_bit());
         while rcc.cr.read().pllrdy().bit_is_clear() {}
 
-        ConfiguredClock {
-            f: f,
-            bits: 0b11,
-            pwr: pwr,
-        }
+        ConfiguredClock { f, bits: 0b11, pwr }
     }
 }
 
@@ -401,7 +397,7 @@ impl AutoConf for PLLClkSource {
 impl InputClock for PLLClkSource {
     fn freq(&self) -> u32 {
         match self {
-            PLLClkSource::HSI16(ref s) => s.freq(), // *siiiigh*
+            PLLClkSource::HSI16(ref s) => s.freq(),
             PLLClkSource::HSE(ref s) => s.freq(),
         }
     }
@@ -423,8 +419,8 @@ pub enum PeripheralClock {
 impl InputClock for PeripheralClock {
     fn freq(&self) -> u32 {
         match *self {
-            PeripheralClock::PCLK1(s) => s.0.into(),
-            PeripheralClock::PCLK2(s) => s.0.into(),
+            PeripheralClock::PCLK1(s) => s.0,
+            PeripheralClock::PCLK2(s) => s.0,
         }
     }
 }

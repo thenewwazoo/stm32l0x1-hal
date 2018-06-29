@@ -11,8 +11,6 @@ use rcc::clocking::{InputClock, USARTClkSource};
 use rcc::{APB1, CCIPR};
 use time::Bps;
 
-use cortex_m::asm;
-
 #[cfg(feature = "STM32L011K4")]
 pub mod stm32l011k4;
 
@@ -144,7 +142,7 @@ macro_rules! hal {
                                      .pce().clear_bit()   // parity control disabled
                                      .te().set_bit()      // enable tx
                                      .re().set_bit()      // enable rx
-                                     .over8().clear_bit() // 16x oversampling - default
+                                     //.over8().clear_bit() // 16x oversampling - default
                                     );
 
                     while usart.isr.read().teack().bit_is_clear() {} // UART_CheckIdleState in HAL_UART_Init
@@ -156,8 +154,15 @@ macro_rules! hal {
                     // - LINEN and CLKEN bits in the USART_CR2 register,
                     // - SCEN, HDSEL and IREN  bits in the USART_CR3 register.
                     //  (defaults acceptable)
-                    usart.cr2.modify(|_,w| w.linen().clear_bit().clken().clear_bit());
-                    usart.cr3.modify(|_,w| w.scen().clear_bit().hdsel().clear_bit().iren().clear_bit());
+                    usart.cr2.modify(|_,w| w
+                                     //.linen().clear_bit()
+                                     .clken().clear_bit()
+                                     );
+                    usart.cr3.modify(|_,w| w
+                                     //.scen().clear_bit()
+                                     .hdsel().clear_bit()
+                                     //.iren().clear_bit()
+                                     );
 
                     Serial { usart, pins }
                 }
@@ -266,5 +271,5 @@ macro_rules! hal {
 
 hal! {
     USART2: (usart2, APB1, usart2en, usart2sel0, usart2sel1),
-    //LPUART1: (lpuart1, APB1, lpuart1en, lpuart1sel0, lpuart1sel1),
+    LPUART1: (lpuart1, APB1, lpuart1en, lpuart1sel0, lpuart1sel1),
 }

@@ -53,13 +53,19 @@ impl Power {
         self.vdd_range = vdd_range;
     }
 
-    pub fn set_vcore_range(&mut self, vcore_range: VCoreRange) -> Result<(), PowerError> {
+    pub fn set_vcore_range(&mut self, vcore_range: &VCoreRange) -> Result<(), PowerError> {
         match vcore_range {
             VCoreRange::Range1 => match self.vdd_range {
                 VDDRange::Low => Err(PowerError::LowVDD),
-                _ => Ok(self.cr.set_vcore_range(vcore_range)),
+                _ => {
+                    self.cr.set_vcore_range(vcore_range);
+                    Ok(())
+                }
             },
-            _ => Ok(self.cr.set_vcore_range(vcore_range)),
+            _ => {
+                self.cr.set_vcore_range(vcore_range);
+                Ok(())
+            }
         }
     }
 
@@ -77,7 +83,7 @@ impl CR {
         unsafe { &(*PWR::ptr()).cr }
     }
 
-    pub fn set_vcore_range(&mut self, vcore_range: VCoreRange) {
+    pub fn set_vcore_range(&mut self, vcore_range: &VCoreRange) {
         self.inner().modify(|_, w| unsafe {
             w.vos().bits(match vcore_range {
                 VCoreRange::Range1 => 0b01,

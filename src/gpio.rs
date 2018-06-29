@@ -310,6 +310,7 @@ impl<PIN: OutputPin + StatefulOutputPin> Led<PIN> {
         self.0.set_low();
     }
     #[inline]
+    #[allow(wrong_self_convention)]
     /// Checks whether LED is off
     pub fn is_off(&mut self) -> bool {
         self.0.is_set_low()
@@ -320,6 +321,7 @@ impl<PIN: OutputPin + StatefulOutputPin> Led<PIN> {
         self.0.set_high()
     }
     #[inline]
+    #[allow(wrong_self_convention)]
     /// Checks whether LED is on
     pub fn is_on(&mut self) -> bool {
         self.0.is_set_high()

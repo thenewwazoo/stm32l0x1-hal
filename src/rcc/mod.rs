@@ -196,16 +196,24 @@ impl CFGR {
             VCoreRange::Range2 => {
                 if acr.acr().read().latency().bit() {
                     // 1 wait state => max 16 MHz
-                } else {
+                    if sysclk > 16_000_000 {
+                        panic!("sysclk too high for vrange2");
+                    }
+                } else if sysclk > 8_000_000 {
                     // 0 wait states => max 8 MHz
+                    panic!("sysclk too high for vrange2 w/o flash latency");
                 }
             }
             VCoreRange::Range3 => {
                 // max 4.2 MHz
+                if sysclk > 4_200_000 {
+                    panic!("sysclk too high for vrange3");
+                }
             }
         }
 
-        let hpre_bits = self.hclk
+        let hpre_bits = self
+            .hclk
             .map(|hclk| match sysclk / hclk {
                 0 => unreachable!(),
                 1 => 0b0111,
@@ -222,7 +230,8 @@ impl CFGR {
 
         let hclk = sysclk / (1 << (hpre_bits - 0b0111));
 
-        let ppre1_bits = self.pclk1
+        let ppre1_bits = self
+            .pclk1
             .map(|pclk1| match hclk / pclk1 {
                 0 => unreachable!(),
                 1 => 0b011,
@@ -233,7 +242,8 @@ impl CFGR {
             })
             .unwrap_or(0b011);
 
-        let ppre2_bits = self.pclk2
+        let ppre2_bits = self
+            .pclk2
             .map(|pclk2| match hclk / pclk2 {
                 0 => unreachable!(),
                 1 => 0b011,
@@ -246,8 +256,8 @@ impl CFGR {
 
         let ppre1: u8 = 1 << (ppre1_bits - 0b011);
         let ppre2: u8 = 1 << (ppre2_bits - 0b011);
-        let pclk1 = hclk / ppre1 as u32;
-        let pclk2 = hclk / ppre2 as u32;
+        let pclk1 = hclk / u32::from(ppre1);
+        let pclk2 = hclk / u32::from(ppre2);
 
         let rcc = unsafe { &*RCC::ptr() };
         // use HSI as source
