@@ -3,6 +3,9 @@
 //! This module was written with only the STM32L011K4 (on the NUCLEO board) on-hand. Future
 //! refinements to expand to other packages is TODO.
 
+#![allow(unknown_lints)]
+#![allow(clippy)]
+
 use core::marker::PhantomData;
 use core::ops::Deref;
 

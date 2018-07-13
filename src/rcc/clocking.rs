@@ -22,8 +22,11 @@
 //! The PLL is a bit more complex because it _is_ a source (`PLLClkOutput`) and also _requires_
 //! a source (`PLLClkSource`), but you compose the types similarly.
 
+#![allow(unknown_lints)]
+#![allow(clippy)]
+
+use flash::ACR;
 use super::rcc;
-use cortex_m::asm;
 use time::Hertz;
 
 use power::{Power, VCoreRange};
@@ -39,7 +42,7 @@ pub trait InputClock {
 /// Clock sources can configure themselves. This is a by-convention trait.
 pub trait AutoConf {
     /// Clock, configure thyself
-    fn configure(self, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock;
+    fn configure(self, acr: &mut ACR, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock;
 }
 
 /// The result of configuring a clock
@@ -60,14 +63,39 @@ impl ConfiguredClock {
 }
 
 /// High-speed internal 16 MHz RC
-pub struct HighSpeedInternal16RC;
+pub struct HighSpeedInternal16RC {
+    div4: bool,
+}
+
+impl HighSpeedInternal16RC {
+    pub fn new() -> Self {
+        HighSpeedInternal16RC{div4: false}
+    }
+
+    pub fn div4() -> Self {
+        HighSpeedInternal16RC{div4: true}
+    }
+}
 
 impl AutoConf for HighSpeedInternal16RC {
     /// Applies the selection options to the configuration registers and turns the clock on
-    fn configure(self, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
+    fn configure(self, acr: &mut ACR, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
+
+        // 16 MHz clock requires flash wait state set
+        acr.acr().modify(|_, w| w.latency().set_bit());
+
         rcc.icscr.modify(|_, w| unsafe { w.hsi16trim().bits(0x10) }); // 16 is the default value
         rcc.cr.modify(|_, w| w.hsi16on().set_bit());
         while rcc.cr.read().hsi16rdyf().bit_is_clear() {}
+
+        if self.div4 {
+            rcc.cr.modify(|_,w| w.hsi16diven().set_bit());
+            while rcc.cr.read().hsi16divf().bit_is_clear() {}
+        } else {
+            rcc.cr.modify(|_,w| w.hsi16diven().clear_bit());
+            while rcc.cr.read().hsi16divf().bit_is_set() {}
+        }
+
         ConfiguredClock {
             f: self.freq(),
             bits: 0b01,
@@ -78,7 +106,11 @@ impl AutoConf for HighSpeedInternal16RC {
 
 impl InputClock for HighSpeedInternal16RC {
     fn freq(&self) -> u32 {
-        16_000_000
+        if self.div4 {
+            4_000_000
+        } else {
+            16_000_000
+        }
     }
 }
 
@@ -114,7 +146,11 @@ impl MediumSpeedInternalRC {
 impl AutoConf for MediumSpeedInternalRC {
     /// Configures the MSI to the specified frequency, and enables hardware
     /// auto-calibration if requested by enabling (and waiting for) the LSE.
-    fn configure(self, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
+    fn configure(self, acr: &mut ACR, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
+
+        // No MSI-supported clock requires flash wait state
+        acr.acr().modify(|_, w| w.latency().clear_bit());
+
         rcc.icscr
             .modify(|_, w| unsafe { w.msirange().bits(self.bits()) });
         while rcc.cr.read().msirdy().bit_is_clear() {}
@@ -153,16 +189,34 @@ impl HighSpeedExternalOSC {
 impl AutoConf for HighSpeedExternalOSC {
     /// Turns on the HSE oscillator.
     ///
-    /// (Should this also configure the pin?)
-    fn configure(self, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
-        assert!(
-            self.freq() < match pwr.vcore_range() {
-                VCoreRange::Range1 => 32_000_000, // 24 MHz max for crystal!!!
-                VCoreRange::Range2 => 16_000_000,
-                VCoreRange::Range3 => 8_000_000,
-            },
-            "HSE speed too high for VCore"
-        );
+    /// (Should this also configure the pin?) n.b. this is untested code
+    fn configure(self, acr: &mut ACR, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
+
+        match pwr.vcore_range() {
+            VCoreRange::Range1 => {
+                if self.freq() >= 16_000_000 {
+                    acr.acr().modify(|_, w| w.latency().set_bit());
+                } else {
+                    acr.acr().modify(|_, w| w.latency().clear_bit());
+                }
+            }
+            VCoreRange::Range2 => {
+                if self.freq() > 16_000_000 {
+                    panic!("sysclk too high for vrange2");
+                } else if self.freq() > 8_000_000 {
+                    acr.acr().modify(|_, w| w.latency().set_bit());
+                } else {
+                    acr.acr().modify(|_, w| w.latency().clear_bit());
+                }
+            }
+            VCoreRange::Range3 => {
+                // max 4.2 MHz
+                if self.freq() > 4_200_000 {
+                    panic!("sysclk too high for vrange3");
+                }
+                acr.acr().modify(|_, w| w.latency().clear_bit());
+            }
+        }
 
         rcc.cr.modify(|_, w| w.hseon().set_bit());
         while rcc.cr.read().hserdy().bit_is_clear() {}
@@ -190,12 +244,12 @@ pub enum SysClkSource {
 }
 
 impl AutoConf for SysClkSource {
-    fn configure(self, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
+    fn configure(self, acr: &mut ACR, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
         match self {
-            SysClkSource::HSI16(s) => s.configure(rcc, pwr),
-            SysClkSource::MSI(s) => s.configure(rcc, pwr),
-            SysClkSource::HSE(s) => s.configure(rcc, pwr),
-            SysClkSource::PLL(s) => s.configure(rcc, pwr),
+            SysClkSource::HSI16(s) => s.configure(acr, rcc, pwr),
+            SysClkSource::MSI(s) => s.configure(acr, rcc, pwr),
+            SysClkSource::HSE(s) => s.configure(acr, rcc, pwr),
+            SysClkSource::PLL(s) => s.configure(acr, rcc, pwr),
         }
     }
 }
@@ -301,45 +355,60 @@ impl PLLClkOutput {
 
 impl AutoConf for PLLClkOutput {
     /// AutoConf the PLL to enable the PLLCLK output. Also configures the PLL's source clock
-    fn configure(self, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
-        asm::bkpt();
-
+    fn configure(self, acr: &mut ACR, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
         // Configure the PLL's input
-        let pllsrc_cfg = self.src.configure(rcc, pwr);
+        let pllsrc_cfg = self.src.configure(acr, rcc, pwr);
 
         rcc.cr.modify(|_, w| w.pllon().clear_bit());
         while rcc.cr.read().pllrdy().bit_is_set() {}
 
         let input_freq = pllsrc_cfg.f;
-
-        let pllvco = input_freq * self.mul as u32;
-
         let pwr = pllsrc_cfg.release();
-
-        /*
-        assert!(pllvco <= match pwr.vcore_range() {
-            VCoreRange::Range1 => 96_000_000,
-            VCoreRange::Range2 => 48_000_000,
-            VCoreRange::Range3 => 24_000_000,
-        }, "pllvco too high: {}", pllvco);
-        */
-
+        let pllvco = input_freq * (self.mul as u32);
         let f = pllvco / self.div as u32;
 
-        /*
-        assert!(f <= match pwr.vcore_range() {
-            VCoreRange::Range1 => 32_000_000,
-            VCoreRange::Range2 => 16_000_000,
-            VCoreRange::Range3 => 4_000_000,
-        }, "pll output too high!");
-        */
+        match pwr.vcore_range() {
+            VCoreRange::Range1 => {
+                if pllvco > 96_000_000 {
+                    panic!("pllvco over 96MHz");
+                }
+                if f > 32_000_000 {
+                    panic!("pll output too high");
+                } else if f >= 16_000_000 {
+                    acr.acr().modify(|_, w| w.latency().set_bit());
+                } else {
+                    acr.acr().modify(|_, w| w.latency().clear_bit());
+                }
+            },
+            VCoreRange::Range2 => {
+                if pllvco > 48_000_000 {
+                    panic!("pllvco over 48MHz");
+                }
+                if f > 16_000_000 {
+                    panic!("pll output too high for vrange2");
+                } else if f > 8_000_000 {
+                    acr.acr().modify(|_, w| w.latency().set_bit());
+                } else {
+                    acr.acr().modify(|_, w| w.latency().clear_bit());
+                }
+            },
+            VCoreRange::Range3 => {
+                if pllvco > 24_000_000 {
+                    panic!("pllvco over 24MHz");
+                }
+                if f > 4_200_000 {
+                    panic!("pll output too high for vrange3");
+                }
+                acr.acr().modify(|_, w| w.latency().clear_bit());
+            },
+        }
 
         // because we partially moved self, we need to move relevant members out before we can use
         // them in the modify closure
         let (bits, mul, div) = (self.bits, self.mul, self.div);
         rcc.cfgr.modify(|_, w| unsafe {
             w.pllsrc()
-                .bit(bits == 0)
+                .bit(bits == 1)
                 .pllmul()
                 .bits(mul.bits())
                 .plldiv()
@@ -353,14 +422,6 @@ impl AutoConf for PLLClkOutput {
     }
 }
 
-// /// PLLADC2CLK output of PLLSAI2
-// #[derive(Clone, Copy)]
-// pub struct PLLADC2Clk {
-// src: PLLClkSource,
-// ...,
-// }
-//
-
 /// Selectable PLL module input sources
 pub enum PLLClkSource {
     /// HSI16
@@ -372,10 +433,10 @@ pub enum PLLClkSource {
 impl AutoConf for PLLClkSource {
     /// This configures the input to the PLL. It's usually only called by
     /// PLLClkOutput::configure.
-    fn configure(self, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
+    fn configure(self, acr: &mut ACR, rcc: &rcc::RegisterBlock, pwr: Power) -> ConfiguredClock {
         match self {
             PLLClkSource::HSI16(s) => {
-                let cfg = s.configure(rcc, pwr);
+                let cfg = s.configure(acr, rcc, pwr);
                 ConfiguredClock {
                     f: cfg.f,
                     bits: 0b0,
@@ -383,7 +444,7 @@ impl AutoConf for PLLClkSource {
                 }
             }
             PLLClkSource::HSE(s) => {
-                let cfg = s.configure(rcc, pwr);
+                let cfg = s.configure(acr, rcc, pwr);
                 ConfiguredClock {
                     f: cfg.f,
                     bits: 0b1,

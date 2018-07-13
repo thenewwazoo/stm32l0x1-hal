@@ -1,5 +1,8 @@
 //! Flash memory
 
+#![allow(unknown_lints)]
+#![allow(clippy)]
+
 use stm32l0x1::{flash, FLASH};
 
 /// Extension trait to constrain the FLASH peripheral

@@ -1,4 +1,8 @@
-use super::power::{Power, VCoreRange};
+
+#![allow(unknown_lints)]
+#![allow(clippy)]
+
+use super::power::Power;
 use super::time::Hertz;
 use flash::ACR;
 use rcc::clocking::AutoConf;
@@ -174,100 +178,75 @@ impl CFGR {
     }
 
     pub fn freeze(self, acr: &mut ACR, pwr: Power) -> Clocks {
+        // TODO
+        // To guarantee 32 MHz operation at VDD =1.8 V±5%, with 1 wait state, and VCORE range 1,
+        // the CPU frequency in run mode must be managed to prevent any changes exceeding a ratio
+        // of 4 in one shot. A delay of 5 μs must be respected between 2 changes. There is no
+        // limitation when waking up from low-power mode.
+
         let rcc = unsafe { &*RCC::ptr() };
 
-        let cfgd = self.sysclk.configure(rcc, pwr);
+        let cfgd = self.sysclk.configure(acr, rcc, pwr);
         let sysclk = cfgd.f;
-        let bits = cfgd.bits;
+        let sw_bits = cfgd.bits;
         let power = cfgd.release();
 
-        if sysclk > 32_000_000 {
-            panic!("sysclk too high");
-        }
-
-        match power.vcore_range() {
-            VCoreRange::Range1 => {
-                if sysclk > 16_000_000 {
-                    acr.acr().modify(|_, w| w.latency().set_bit());
-                } else {
-                    acr.acr().modify(|_, w| w.latency().clear_bit());
-                }
-            }
-            VCoreRange::Range2 => {
-                if acr.acr().read().latency().bit() {
-                    // 1 wait state => max 16 MHz
-                    if sysclk > 16_000_000 {
-                        panic!("sysclk too high for vrange2");
-                    }
-                } else if sysclk > 8_000_000 {
-                    // 0 wait states => max 8 MHz
-                    panic!("sysclk too high for vrange2 w/o flash latency");
-                }
-            }
-            VCoreRange::Range3 => {
-                // max 4.2 MHz
-                if sysclk > 4_200_000 {
-                    panic!("sysclk too high for vrange3");
-                }
-            }
-        }
-
-        let hpre_bits = self
+        let (hpre_bits, hpre_ratio) = self
             .hclk
             .map(|hclk| match sysclk / hclk {
                 0 => unreachable!(),
-                1 => 0b0111,
-                2 => 0b1000,
-                3...5 => 0b1001,
-                6...11 => 0b1010,
-                12...39 => 0b1011,
-                40...95 => 0b1100,
-                96...191 => 0b1101,
-                192...383 => 0b1110,
-                _ => 0b1111,
+                1 => (0b0000, 1),
+                2 => (0b1000, 2),
+                3...5 => (0b1001, 4),
+                6...11 => (0b1010, 8),
+                12...39 => (0b1011, 16),
+                40...95 => (0b1100, 64),
+                96...191 => (0b1101, 128),
+                192...383 => (0b1110, 256),
+                _ => (0b1111, 512),
             })
-            .unwrap_or(0b0111);
+            .unwrap_or((0b0111, 1));
 
-        let hclk = sysclk / (1 << (hpre_bits - 0b0111));
+        let hclk = sysclk / hpre_ratio;
 
-        let ppre1_bits = self
+        let (ppre1_bits, ppre1_ratio) = self
             .pclk1
             .map(|pclk1| match hclk / pclk1 {
                 0 => unreachable!(),
-                1 => 0b011,
-                2 => 0b100,
-                3...5 => 0b101,
-                6...11 => 0b110,
-                _ => 0b111,
+                1 => (0b000, 1),
+                2 => (0b100, 2),
+                3...5 => (0b101, 4),
+                6...11 => (0b110, 8),
+                _ => (0b111, 16),
             })
-            .unwrap_or(0b011);
+            .unwrap_or((0b011, 1));
 
-        let ppre2_bits = self
+        let pclk1 = hclk / ppre1_ratio;
+
+        let (ppre2_bits, ppre2_ratio) = self
             .pclk2
             .map(|pclk2| match hclk / pclk2 {
                 0 => unreachable!(),
-                1 => 0b011,
-                2 => 0b100,
-                3...5 => 0b101,
-                6...11 => 0b110,
-                _ => 0b111,
+                1 => (0b011, 1),
+                2 => (0b100, 2),
+                3...5 => (0b101, 4),
+                6...11 => (0b110, 8),
+                _ => (0b111, 16),
             })
-            .unwrap_or(0b011);
+            .unwrap_or((0b011, 16));
 
-        let ppre1: u8 = 1 << (ppre1_bits - 0b011);
-        let ppre2: u8 = 1 << (ppre2_bits - 0b011);
-        let pclk1 = hclk / u32::from(ppre1);
-        let pclk2 = hclk / u32::from(ppre2);
+        let pclk2 = hclk / ppre2_ratio;
 
         let rcc = unsafe { &*RCC::ptr() };
-        // use HSI as source
         rcc.cfgr.write(|w| unsafe {
             w.ppre1()
                 .bits(ppre1_bits)
+                .ppre2()
+                .bits(ppre2_bits)
                 .hpre()
                 .bits(hpre_bits)
                 .sw()
-                .bits(bits)
+                .bits(sw_bits)
         });
 
         Clocks {

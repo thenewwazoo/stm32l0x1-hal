@@ -1,5 +1,8 @@
 //! Time units
 
+#![allow(unknown_lints)]
+#![allow(clippy)]
+
 use cortex_m::peripheral::DWT;
 
 use rcc::Clocks;
