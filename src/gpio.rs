@@ -14,11 +14,30 @@ use rcc;
 
 use stm32l0x1;
 
+/// Analog mode trait
+/// Implemented only for corresponding structs.
+///
+/// Note: MUST not be implemented by user.
+pub trait AnalogMode {
+    /// Used to set pin to floating
+    fn modify_pupdr_bits(original: u32, offset: u32) -> u32;
+}
+
+/// Analog mode (type state)
+pub struct Analog(());
+impl AnalogMode for Analog {
+    #[inline]
+    fn modify_pupdr_bits(original: u32, offset: u32) -> u32 {
+        original & !(0b11 << offset)
+    }
+}
+
 /// Input Mode Trait
 /// Implemented only for corresponding structs.
 ///
 /// Note: MUST not be implemented by user.
 pub trait InputMode {
+    /// Manipulate pull up/down bits
     fn modify_pupdr_bits(original: u32, offset: u32) -> u32;
 }
 
@@ -51,6 +70,7 @@ impl InputMode for PullUp {
 
 /// Input mode (type state)
 pub struct Input<MODE> {
+    #[doc(hidden)]
     _mode: PhantomData<MODE>,
 }
 
@@ -59,6 +79,7 @@ pub struct Input<MODE> {
 ///
 /// Note: MUST not be implemented by user.
 pub trait OutputMode {
+    /// Modify output type bits
     fn modify_otyper_bits(original: u32, idx: u8) -> u32;
 }
 
@@ -82,10 +103,17 @@ impl OutputMode for OpenDrain {
 
 /// Output mode (type state)
 pub struct Output<MODE, PUMODE> {
+    #[doc(hidden)]
     _mode: PhantomData<MODE>,
+    #[doc(hidden)]
     _pu: PhantomData<PUMODE>,
 }
 
+/// Pin drive strength
+///
+/// Note: Refer to the device datasheet for the frequency specifications and the power supply and
+/// load conditions for each speed.
+#[allow(missing_docs)]
 #[repr(C)]
 pub enum PinSpeed {
     Low = 0,
@@ -128,11 +156,6 @@ macro_rules! impl_parts {
                     unsafe { &(*$GPIOX::ptr()).ospeedr }
                 }
             }
-            impl BRR<$GPIOX> {
-                pub fn brr(&mut self) -> &stm32l0x1::$gpiox::BRR {
-                    unsafe { &(*$GPIOX::ptr()).brr }
-                }
-            }
          )+
     }
 }
@@ -151,42 +174,22 @@ macro_rules! impl_gpio {
         #[allow(non_snake_case)]
         ///GPIO
         pub struct $name {
-            /// Opaque AFRH register
-            pub afrh: AFRH<$GPIOX>,
-            /// Opaque AFRL register
-            pub afrl: AFRL<$GPIOX>,
-            /// Opaque MODER register
-            pub moder: MODER<$GPIOX>,
-            /// Opaque OTYPER register
-            pub otyper: OTYPER<$GPIOX>,
-            /// Opaque PUPDR register
-            pub pupdr: PUPDR<$GPIOX>,
-            /// Opaque OSPEEDR register
-            pub ospeedr: OSPEEDR<$GPIOX>,
-            /// Opaque BRR register
-            pub brr: BRR<$GPIOX>,
             $(
                 /// Pin
-                pub $PXiL: $PXiL<Input<Floating>>,
+                pub $PXiL: $PXiL<Analog>,
             )*
             $(
                 /// Pin
-                pub $PXiH: $PXiH<Input<Floating>>,
+                pub $PXiH: $PXiH<Analog>,
             )*
         }
 
         impl $name {
-            pub fn new(iop: &mut rcc::IOP) -> Self {
+            /// Create a new GPIO module object
+            pub fn new(_gpio: $GPIOX, iop: &mut rcc::IOP) -> Self {
                 iop.enr().modify(|_,w| w.$gpioen().set_bit());
                 while iop.enr().read().$gpioen().bit_is_clear() {}
                 Self {
-                    afrh: AFRH(PhantomData),
-                    afrl: AFRL(PhantomData),
-                    moder: MODER(PhantomData),
-                    otyper: OTYPER(PhantomData),
-                    pupdr: PUPDR(PhantomData),
-                    ospeedr: OSPEEDR(PhantomData),
-                    brr: BRR(PhantomData),
                     $(
                         $PXiL: $PXiL(PhantomData),
                     )*
@@ -195,86 +198,102 @@ macro_rules! impl_gpio {
                     )*
                 }
             }
-
-//            pub fn reset_pin<P, R: Reset<$GPIOX, P>>(&mut self, r: R) -> P {
-//                let _ = core::mem::replace(&mut r, r.reset(&mut self.brr));
-//                r
-//                //r.reset(&mut self.brr)
-//            }
         }
-
     }
 }
-
-//pub trait Reset<G, P> {
-//    fn reset(self, brr: &mut BRR<G>) -> P;
-//}
 
 macro_rules! impl_pin {
     ($GPIOX:ident, $PXi:ident, $AFR:ident, $i:expr) => {
         /// Specific Pin
         pub struct $PXi<MODE>(PhantomData<MODE>);
 
-//        impl<MODE> Reset<$GPIOX, $PXi<Input<Floating>>> for $PXi<MODE> {
-//
-//            fn reset(self, brr: &mut BRR<$GPIOX>) -> $PXi<Input<Floating>> {
-//
-//                brr.brr().write(|w| unsafe { w.bits(1 << $i) });
-//                $PXi(PhantomData)
-//            }
-//
-//        }
-
         impl<MODE> $PXi<MODE> {
             const OFFSET: u32 = 2 * $i;
 
-            /// Configures the PIN to operate as Input Pin according to Mode.
-            pub fn into_input<Mode: InputMode>(self, moder: &mut MODER<$GPIOX>, pupdr: &mut PUPDR<$GPIOX>) -> $PXi<Input<Mode>> {
-                moder.moder().modify(|r, w| unsafe { w.bits(r.bits() & !(0b11 << Self::OFFSET)) });
-                pupdr.pupdr().modify(|r, w| unsafe { w.bits(Mode::modify_pupdr_bits(r.bits(), Self::OFFSET)) });
+            /// Configures the PIN to operate as a high-impedance analog input
+            pub fn into_analog(self) -> $PXi<Analog> {
+                let mut moder: MODER<$GPIOX> = MODER(PhantomData);
+                let mut pupdr: PUPDR<$GPIOX> = PUPDR(PhantomData);
+                pupdr.pupdr().modify(|r, w| unsafe {
+                    w.bits(Analog::modify_pupdr_bits(r.bits(), Self::OFFSET))
+                });
+                moder
+                    .moder()
+                    .modify(|r, w| unsafe { w.bits(r.bits() | (0b11 << Self::OFFSET)) });
 
                 $PXi(PhantomData)
             }
 
+            /// Configures the PIN to operate as Input Pin according to Mode.
+            pub fn into_input<Mode: InputMode>(self) -> $PXi<Input<Mode>> {
+                let mut moder: MODER<$GPIOX> = MODER(PhantomData);
+                let mut pupdr: PUPDR<$GPIOX> = PUPDR(PhantomData);
+
+                moder
+                    .moder()
+                    .modify(|r, w| unsafe { w.bits(r.bits() & !(0b11 << Self::OFFSET)) });
+                pupdr.pupdr().modify(|r, w| unsafe {
+                    w.bits(Mode::modify_pupdr_bits(r.bits(), Self::OFFSET))
+                });
+
+                $PXi(PhantomData)
+            }
+
+            /// Set pin drive strength
             #[inline]
-            pub fn set_pin_speed(&self, spd: PinSpeed, ospeedr: &mut OSPEEDR<$GPIOX>) {
-                ospeedr
-                    .ospeedr()
-                    .modify(|r, w| unsafe { w.bits((r.bits() & !(0b11 << Self::OFFSET)) | ((spd as u32) << Self::OFFSET)) });
+            pub fn set_pin_speed(&self, spd: PinSpeed) {
+                let mut ospeedr: OSPEEDR<$GPIOX> = OSPEEDR(PhantomData);
+
+                ospeedr.ospeedr().modify(|r, w| unsafe {
+                    w.bits((r.bits() & !(0b11 << Self::OFFSET)) | ((spd as u32) << Self::OFFSET))
+                });
             }
 
             /// Configures the PIN to operate as Output Pin according to Mode.
-            pub fn into_output<OMode: OutputMode, PUMode: InputMode>(self, moder: &mut MODER<$GPIOX>, otyper: &mut OTYPER<$GPIOX>, pupdr: &mut PUPDR<$GPIOX>) -> $PXi<Output<OMode, PUMode>> {
-                moder
-                    .moder()
-                    .modify(|r, w| unsafe { w.bits((r.bits() & !(0b11 << Self::OFFSET)) | (0b01 << Self::OFFSET)) });
-                pupdr.pupdr().modify(|r, w| unsafe { w.bits(PUMode::modify_pupdr_bits(r.bits(), Self::OFFSET)) });
-                otyper.otyper().modify(|r, w| unsafe { w.bits(OMode::modify_otyper_bits(r.bits(), $i)) });
+            pub fn into_output<OMode: OutputMode, PUMode: InputMode>(
+                self,
+            ) -> $PXi<Output<OMode, PUMode>> {
+                let mut moder: MODER<$GPIOX> = MODER(PhantomData);
+                let mut otyper: OTYPER<$GPIOX> = OTYPER(PhantomData);
+                let mut pupdr: PUPDR<$GPIOX> = PUPDR(PhantomData);
+
+                moder.moder().modify(|r, w| unsafe {
+                    w.bits((r.bits() & !(0b11 << Self::OFFSET)) | (0b01 << Self::OFFSET))
+                });
+                pupdr.pupdr().modify(|r, w| unsafe {
+                    w.bits(PUMode::modify_pupdr_bits(r.bits(), Self::OFFSET))
+                });
+                otyper
+                    .otyper()
+                    .modify(|r, w| unsafe { w.bits(OMode::modify_otyper_bits(r.bits(), $i)) });
 
                 $PXi(PhantomData)
             }
 
             /// Configures the PIN to operate as Alternate Function.
-            pub fn into_alt_fun<AF: AltFun>(self, moder: &mut MODER<$GPIOX>, afr: &mut $AFR<$GPIOX>) -> $PXi<AF> {
+            pub fn into_alt_fun<AF: AltFun>(self) -> $PXi<AF> {
+                let mut moder: MODER<$GPIOX> = MODER(PhantomData);
+                let mut afr: $AFR<$GPIOX> = $AFR(PhantomData);
+
                 // AFRx pin fields are 4 bits wide, and each 8-pin bank has its own reg (L or H); e.g. pin 8's offset is _0_, within AFRH.
                 const AFR_OFFSET: usize = ($i % 8) * 4;
-                moder
-                    .moder()
-                    .modify(|r, w| unsafe { w.bits((r.bits() & !(0b11 << Self::OFFSET)) | (0b10 << Self::OFFSET)) });
-                afr.afr().modify(|r, w| unsafe { w.bits((r.bits() & !(0b1111 << AFR_OFFSET)) | (AF::NUM << AFR_OFFSET)) });
+                moder.moder().modify(|r, w| unsafe {
+                    w.bits((r.bits() & !(0b11 << Self::OFFSET)) | (0b10 << Self::OFFSET))
+                });
+                afr.afr().modify(|r, w| unsafe {
+                    w.bits((r.bits() & !(0b1111 << AFR_OFFSET)) | (AF::NUM << AFR_OFFSET))
+                });
 
                 $PXi(PhantomData)
             }
         }
 
         impl<OMODE, PUMODE> OutputPin for $PXi<Output<OMODE, PUMODE>> {
-            /// Sets high bit.
             fn set_high(&mut self) {
                 // NOTE(unsafe) atomic write to a stateless register
                 unsafe { (*$GPIOX::ptr()).bsrr.write(|w| w.bits(1 << $i)) }
             }
 
-            /// Sets low bit.
             fn set_low(&mut self) {
                 // NOTE(unsafe) atomic write to a stateless register
                 unsafe { (*$GPIOX::ptr()).bsrr.write(|w| w.bits(1 << (16 + $i))) }
@@ -393,12 +412,11 @@ pub struct OTYPER<GPIO>(PhantomData<GPIO>);
 pub struct PUPDR<GPIO>(PhantomData<GPIO>);
 /// Opaque OSPEEDR register
 pub struct OSPEEDR<GPIO>(PhantomData<GPIO>);
-/// Opaque BRR register
-pub struct BRR<GPIO>(PhantomData<GPIO>);
 
 macro_rules! impl_af {
     ( [$($af:ident, $i:expr;)*] ) => {
         $(
+            /// Alternate function $af
             pub struct $af;
             impl AltFun for $af {
                 const NUM: u32 = $i;
@@ -412,6 +430,7 @@ macro_rules! impl_af {
 ///
 /// Note: MUST not be implemented by user.
 pub trait AltFun {
+    /// Number of the alternate function
     const NUM: u32;
 }
 

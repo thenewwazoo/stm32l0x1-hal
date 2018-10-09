@@ -5,22 +5,22 @@
 
 use cortex_m::peripheral::DWT;
 
-use rcc::Clocks;
+use rcc::ClockContext;
 
 /// Bits per second
 #[derive(Clone, Copy)]
 pub struct Bps(pub u32);
 
 /// Hertz
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialOrd, PartialEq)]
 pub struct Hertz(pub u32);
 
 /// KiloHertz
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialOrd, PartialEq)]
 pub struct KiloHertz(pub u32);
 
 /// MegaHertz
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialOrd, PartialEq)]
 pub struct MegaHertz(pub u32);
 
 /// Extension trait that adds convenience methods to the `u32` type
@@ -83,7 +83,7 @@ pub struct MonoTimer {
 impl MonoTimer {
     /// Creates a new `Monotonic` timer
     #[allow(needless_pass_by_value)]
-    pub fn new(mut dwt: DWT, clocks: Clocks) -> Self {
+    pub fn new(mut dwt: DWT, clocks: ClockContext) -> Self {
         dwt.enable_cycle_counter();
 
         // now the CYCCNT counter can't be stopped or resetted

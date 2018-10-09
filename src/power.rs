@@ -1,144 +1,346 @@
-//! Power control
+//! Power configuration and management
 
-#![allow(unknown_lints)]
-#![allow(clippy)]
-
-use stm32l0x1::{pwr, PWR};
+use core::marker::PhantomData;
 
 use common::Constrain;
-use rcc::APB1;
+//use cortex_m::{self, asm};
+use rcc;
+use stm32l0x1::{pwr, PWR};
+use time::Hertz;
 
-pub enum PowerError {
-    LowVDD,
-}
+// Why do I impl Constrain twice? Good question. The VDD range is physical property, and I can't
+// pick the correct value for you. The VCore range and RTC enable state are set at startup time by
+// the chip, so I can pick defaults based on that. It's admittedly a bit unergonomic, but you will
+// need to specify the type of `T` for constrain:
+//
+// let pwr: Power<VddHigh, VCoreRange2, RtcDis> = d.PWR.constrain();
+//
+// The annotation is necessary because the spec for `fn constrain` does not permit us to say:
+// ```rust
+// impl Constrain<Power<VDD, VCoreRange2, RtcDis>> for PWR {
+//     fn constrain<VDD>(self) -> Power<VDD, VCoreRange2, RtcDis> { // <-- fn type mis-match
+// ```
 
-#[derive(PartialEq)]
-/// Figure 11. Performance versus VDD and VCORE range
-pub enum VDDRange {
-    /// 1.71 V - 3.6 V
-    High,
-    /// 1.65 V - 3.6 V
-    Low,
-}
-
-#[derive(PartialEq)]
-/// 6.1.4 Dynamic voltage scaling management
-pub enum VCoreRange {
-    /// Range 1 is the "high performance" range. Vcore = 1.8V
-    Range1,
-    /// Range 2 is the "medium performance" range. Vcore = 1.5V
-    Range2,
-    /// Range 3 is the "low power" range. Vcore = 1.2V
-    Range3,
-}
-
-/// Constrained Power control module
-pub struct Power {
-    /// Control register
-    pub cr: CR, // TODO make private
-    /// Control and Status Register
-    pub csr: CSR, // TODO make private
-    /// MCU VDD voltage range. This is external to the chip.
-    vdd_range: VDDRange,
-}
-
-impl Constrain<Power> for PWR {
-    fn constrain(self) -> Power {
+impl Constrain<Power<VddLow, VCoreRange2, RtcDis>> for PWR {
+    fn constrain(self) -> Power<VddLow, VCoreRange2, RtcDis> {
         Power {
             cr: CR(()),
             csr: CSR(()),
-            vdd_range: VDDRange::High,
+            _vdd: PhantomData,
+            _vcore: PhantomData,
+            _rtc: PhantomData,
         }
     }
 }
 
-impl Power {
-    pub fn set_vddrange(&mut self, vdd_range: VDDRange) {
-        self.vdd_range = vdd_range;
-    }
-
-    pub fn set_vcore_range(&mut self, vcore_range: VCoreRange, apb1: &mut APB1) -> Result<(), PowerError> {
-        match vcore_range {
-            VCoreRange::Range1 => match self.vdd_range {
-                VDDRange::Low => Err(PowerError::LowVDD),
-                _ => {
-                    self.cr.set_vcore_range(self.csr.csr(), vcore_range, apb1);
-                    Ok(())
-                }
-            },
-            _ => {
-                self.cr.set_vcore_range(self.csr.csr(), vcore_range, apb1);
-                Ok(())
-            }
+impl Constrain<Power<VddHigh, VCoreRange2, RtcDis>> for PWR {
+    fn constrain(self) -> Power<VddHigh, VCoreRange2, RtcDis> {
+        Power {
+            cr: CR(()),
+            csr: CSR(()),
+            _vdd: PhantomData,
+            _vcore: PhantomData,
+            _rtc: PhantomData,
         }
-    }
-
-    pub fn vcore_range(&self) -> VCoreRange {
-        self.cr.get_vcore_range()
     }
 }
 
+pub struct Power<VDD, VCORE, RTC> {
+    /// Power control register
+    cr: CR,
+    /// Power control status register
+    csr: CSR,
+    #[doc(hidden)]
+    /// MCU VDD voltage range. This is external to the chip.
+    _vdd: PhantomData<VDD>,
+    #[doc(hidden)]
+    /// MCU VCore voltage range. This is configurable.
+    _vcore: PhantomData<VCORE>,
+    #[doc(hidden)]
+    /// RTC enable/disable state
+    _rtc: PhantomData<RTC>,
+}
+
+/// Power control register
 pub struct CR(());
-
 impl CR {
-    /// Return a raw pointer to the CR register
+    /// Direct access to PWR_CR
     #[inline]
-    pub fn inner(&mut self) -> &pwr::CR {
+    pub fn inner(&self) -> &pwr::CR {
         unsafe { &(*PWR::ptr()).cr }
     }
+}
 
-    /// Set the VCore range (see 6.1.4 Dynamic voltage scaling management)
-    pub fn set_vcore_range(&mut self, csr: &pwr::CSR, vcore_range: VCoreRange, apb1: &mut APB1) {
-        // Procedure from sec 6.1.5 Dynamic voltage scaling configuration
+/// Power control/status register
+pub struct CSR(());
+impl CSR {
+    /// Direct access to PWR_CR
+    #[inline]
+    pub fn inner(&self) -> &pwr::CSR {
+        unsafe { &(*PWR::ptr()).csr }
+    }
+}
 
+/// 1.71 V - 3.6 V
+pub struct VddHigh(());
+/// 1.65 V - 3.6 V
+pub struct VddLow(());
+
+#[derive(PartialOrd, PartialEq)]
+pub enum VCoreRange {
+    Range3,
+    Range2,
+    Range1,
+}
+
+impl VCoreRange {
+    pub fn bits(&self) -> u8 {
+        match self {
+            VCoreRange::Range1 => 0b01,
+            VCoreRange::Range2 => 0b10,
+            VCoreRange::Range3 => 0b11,
+        }
+    }
+}
+
+pub trait Vos {
+    fn range() -> VCoreRange;
+}
+
+pub trait FreqLimit {
+    fn max_freq() -> Hertz;
+}
+
+/// Range 1 is the "high performance" range. VCore = 1.8V
+pub struct VCoreRange1(());
+impl Vos for VCoreRange1 {
+    fn range() -> VCoreRange {
+        VCoreRange::Range1
+    }
+}
+
+impl FreqLimit for VCoreRange1 {
+    fn max_freq() -> Hertz {
+        Hertz(32_000_00)
+    }
+}
+
+/// Range 2 is the "medium performance" range. VCore = 1.5V
+pub struct VCoreRange2(());
+impl Vos for VCoreRange2 {
+    fn range() -> VCoreRange {
+        VCoreRange::Range2
+    }
+}
+
+impl FreqLimit for VCoreRange2 {
+    fn max_freq() -> Hertz {
+        Hertz(16_000_00)
+    }
+}
+
+/// Range 3 is the "low power" range. VCore = 1.2V
+pub struct VCoreRange3(());
+impl Vos for VCoreRange3 {
+    fn range() -> VCoreRange {
+        VCoreRange::Range3
+    }
+}
+
+impl FreqLimit for VCoreRange3 {
+    fn max_freq() -> Hertz {
+        Hertz(4_200_00)
+    }
+}
+
+// Here, we only permit calling into_vdd_range when the VCore range is range 2 or range 3. This is
+// because, if the range is 1, the vdd range _must_ be High. The type system prevents us from
+// constructing a Power<VddLow, VCoreRange1, RTC>.
+
+impl<VDD, RTC> Power<VDD, VCoreRange2, RTC> {
+    pub fn into_vdd_range<NEWVDD>(self) -> Power<VDD, VCoreRange2, RTC> {
+        Power {
+            cr: self.cr,
+            csr: self.csr,
+            _vdd: PhantomData,
+            _vcore: PhantomData,
+            _rtc: PhantomData,
+        }
+    }
+}
+
+impl<VDD, RTC> Power<VDD, VCoreRange3, RTC> {
+    pub fn into_vdd_range<NEWVDD>(self) -> Power<VDD, VCoreRange3, RTC> {
+        Power {
+            cr: self.cr,
+            csr: self.csr,
+            _vdd: PhantomData,
+            _vcore: PhantomData,
+            _rtc: PhantomData,
+        }
+    }
+}
+
+impl<VCORE, RTC> Power<VddHigh, VCORE, RTC> {
+    pub fn into_vcore_range<NEWRANGE>(self) -> Power<VddHigh, NEWRANGE, RTC>
+    where
+        NEWRANGE: Vos,
+    {
+        Power {
+            cr: self.cr,
+            csr: self.csr,
+            _vdd: PhantomData,
+            _vcore: PhantomData,
+            _rtc: PhantomData,
+        }
+    }
+}
+
+impl<RTC> Power<VddLow, VCoreRange2, RTC> {
+    pub fn into_vcore_range(self) -> Power<VddLow, VCoreRange3, RTC> {
+        Power {
+            cr: self.cr,
+            csr: self.csr,
+            _vdd: PhantomData,
+            _vcore: PhantomData,
+            _rtc: PhantomData,
+        }
+    }
+}
+
+impl<RTC> Power<VddLow, VCoreRange3, RTC> {
+    pub fn into_vcore_range(self) -> Power<VddLow, VCoreRange2, RTC> {
+        Power {
+            cr: self.cr,
+            csr: self.csr,
+            _vdd: PhantomData,
+            _vcore: PhantomData,
+            _rtc: PhantomData,
+        }
+    }
+}
+
+impl<VDD, VCORE, RTC> Power<VDD, VCORE, RTC>
+where
+    VCORE: Vos,
+{
+    /// The PWREN bit must be set while changing the configuration of the power peripheral. This
+    /// provides a context within which this is true.
+    fn while_clk_en<F>(apb1: &mut rcc::APB1, mut op: F)
+    where
+        F: FnMut(),
+    {
+        // Enable configuration of the PWR peripheral
         apb1.enr().modify(|_, w| w.pwren().set_bit());
         while !apb1.enr().read().pwren().bit_is_set() {}
 
-        // 1. Check VDD to identify which ranges are allowed (see Figure 11: Performance versus VDD
-        //    and VCORE range).
-        //
-        // This is performed by the caller. We assume that the requested range is valid.
-
-        // 2. Poll VOSF bit of in PWR_CSR. Wait until it is reset to 0.
-        while csr.read().vosf().bit_is_set() {}
-
-        self.inner().modify(|_, w| unsafe {
-            // 3. Configure the voltage scaling range by setting the VOS[1:0] bits in the PWR_CR
-            //    register.
-            w.vos().bits(match vcore_range {
-                VCoreRange::Range1 => 0b01,
-                VCoreRange::Range2 => 0b10,
-                VCoreRange::Range3 => 0b11,
-            })
-        });
-
-        // 4. Poll VOSF bit of in PWR_CSR register. Wait until it is reset to 0.
-        while csr.read().vosf().bit_is_set() {}
+        op();
 
         apb1.enr().modify(|_, w| w.pwren().clear_bit());
         while apb1.enr().read().pwren().bit_is_set() {}
     }
 
-    pub fn get_vcore_range(&self) -> VCoreRange {
-        // self.inner() takes &mut self, but this is a side-effect-free read, so we don't want to
-        // make this function take &mut self as an argument. Instead, we will use the pointer
-        // directly.
-        let inner = unsafe { &(*PWR::ptr()).cr };
-        match inner.read().vos().bits() {
+    /// Provide a context for changing LSE and RTC settings.
+    ///
+    /// 7.3.20: Note: The LSEON, LSEBYP, RTCSEL, LSEDRV and RTCEN bits in the RCC control and
+    ///   status register (RCC_CSR) are in the RTC domain. As these bits are write protected after
+    ///   reset, the DBP bit in the Power control register (PWR_CR) has to be set to be able to
+    ///   modify them. Refer to Section 6.1.2: RTC and RTC backup registers for further
+    ///   information.
+    pub fn dbp_context<F>(&mut self, mut op: F)
+    where
+        F: FnMut(),
+    {
+        self.cr.inner().modify(|_, w| w.dbp().set_bit());
+        while self.cr.inner().read().dbp().bit_is_clear() {}
+
+        op();
+
+        self.cr.inner().modify(|_, w| w.dbp().clear_bit());
+        while self.cr.inner().read().dbp().bit_is_set() {}
+    }
+
+    pub fn enact(&mut self, apb1: &mut rcc::APB1) {
+        Power::<VDD, VCORE, RTC>::while_clk_en(apb1, || {
+            self.cr
+                .inner()
+                .modify(|_, w| unsafe { w.vos().bits(VCORE::range().bits()) });
+
+            // 4. Poll VOSF bit of in PWR_CSR register. Wait until it is reset to 0.
+            while self.csr.inner().read().vosf().bit_is_set() {}
+        });
+    }
+
+    pub fn read_vcore_range(&self) -> VCoreRange {
+        match self.cr.inner().read().vos().bits() {
             0b01 => VCoreRange::Range1,
             0b10 => VCoreRange::Range2,
             0b11 => VCoreRange::Range3,
-            _ => panic!("invalid VOS"),
+            _ => unreachable!(),
         }
     }
 }
 
-pub struct CSR(());
+pub struct RtcEn(());
+pub struct RtcDis(());
 
-impl CSR {
-    /// Return a raw pointer to the CSR register
-    #[inline]
-    pub fn csr(&mut self) -> &pwr::CSR {
-        unsafe { &(*PWR::ptr()).csr }
+impl<VDD, VCORE> Power<VDD, VCORE, RtcEn>
+where
+    VCORE: Vos,
+{
+    pub fn disable_rtc(self, apb1: &mut rcc::APB1) -> Power<VDD, VCORE, RtcDis> {
+        // (Disable the power interface clock)
+        apb1.enr().modify(|_, w| w.pwren().clear_bit());
+        while apb1.enr().read().pwren().bit_is_set() {}
+
+        self.cr.inner().modify(|_, w| w.dbp().clear_bit());
+
+        Power {
+            cr: self.cr,
+            csr: self.csr,
+            _vdd: PhantomData,
+            _vcore: PhantomData,
+            _rtc: PhantomData,
+        }
+    }
+}
+
+impl<VDD, VCORE> Power<VDD, VCORE, RtcDis>
+where
+    VCORE: Vos,
+{
+    pub fn enable_rtc(
+        mut self,
+        cr: &mut rcc::CR,
+        apb1: &mut rcc::APB1,
+    ) -> Power<VDD, VCORE, RtcEn> {
+        // From 6.4.1 bit 8 DBP:
+        //  Note: If the HSE divided by 2, 4, 8 or 16 is used as the RTC clock, this bit must
+        //  remain set to 1.
+        if cr.inner().read().rtcpre().bits() == 0 {
+            self.cr.inner().modify(|_, w| w.dbp().clear_bit());
+        } else {
+            self.cr.inner().modify(|_, w| w.dbp().set_bit());
+        }
+
+        // From 6.1.2 RTC registers access
+        // 1. Enable the power interface clock by setting the PWREN bits in the RCC_APB1ENR register.
+        apb1.enr().modify(|_, w| w.pwren().set_bit());
+        while !apb1.enr().read().pwren().bit_is_set() {}
+
+        // 2. Set the DBP bit in the PWR_CR register (see Section 6.4.1).
+        // (note: or any other thing)
+        self.dbp_context(|| {
+            // 3. Select the RTC clock source through RTCSEL[1:0] bits in RCC_CSR register.
+            // 4. Enable the RTC clock by programming the RTCEN bit in the RCC_CSR register.
+        });
+
+        Power {
+            cr: self.cr,
+            csr: self.csr,
+            _vdd: PhantomData,
+            _vcore: PhantomData,
+            _rtc: PhantomData,
+        }
     }
 }
