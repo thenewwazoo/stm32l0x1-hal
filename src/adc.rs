@@ -5,7 +5,7 @@ use core::time::Duration;
 
 use gpio::Analog;
 use gpio::{PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PB0, PB1};
-use hal::adc::{AdcChannel, Once};
+use hal::adc::{Channel, OneShot};
 use nb;
 use power::{self, VCoreRange};
 use rcc::{self, ClockContext};
@@ -140,7 +140,7 @@ impl RunMode for Discontinuous {
 
 macro_rules! adc_pin {
     ($PXi:ident, $i:expr) => {
-        impl AdcChannel for $PXi<Analog> {
+        impl Channel for $PXi<Analog> {
             type ID = u32;
             const CHANNEL: u32 = $i;
         }
@@ -175,7 +175,7 @@ pub enum Events {
 // allow dead code because we want to hold the references until I get context stuff implemented
 #[allow(dead_code)]
 /// Represents the ADC peripheral
-pub struct Adc<RES, MODE> {
+pub struct Adc<RES, MODE> where RES: Resolution, MODE: RunMode {
     /// The raw ADC peripheral
     adc: ADC,
     /// ADC calibration factor
@@ -188,21 +188,21 @@ pub struct Adc<RES, MODE> {
     _mode: PhantomData<MODE>,
 }
 
-impl<RES, MODE> Adc<RES, MODE> {
+impl<RES, MODE> Adc<RES, MODE> where RES: Resolution, MODE: RunMode {
     fn adc(&mut self) -> &mut ADC {
         &mut self.adc
     }
 }
 
-impl<WORD, RES, PIN> Once<RES::Word, PIN> for Adc<RES, Single>
+impl<WORD, RES, PIN> OneShot<Adc<RES, Single>, RES::Word, PIN> for Adc<RES, Single>
 where
     WORD: From<u16>,
     RES: Resolution<Word = WORD>,
-    PIN: AdcChannel<ID = u32>,
+    PIN: Channel<ID=u8>,
 {
     type Error = Error;
 
-    fn read_channel(&mut self, _pin: &mut PIN) -> nb::Result<RES::Word, Error> {
+    fn read(&mut self, _pin: &mut PIN) -> nb::Result<RES::Word, Error> {
         let chan = 1 << PIN::CHANNEL;
 
         // if a conversion is ongoing
