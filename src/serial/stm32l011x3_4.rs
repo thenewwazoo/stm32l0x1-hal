@@ -5,7 +5,7 @@ use stm32l0x1::{LPUART1, USART2};
 use gpio::{PA0, PA1, PA10, PA13, PA14, PA15, PA2, PA3, PA4, PA8, PA9};
 use gpio::{PB6, PB7};
 
-use gpio::{AF0, AF4, AF6};
+use gpio::AF::{AF0, AF4, AF6};
 
 use super::*;
 

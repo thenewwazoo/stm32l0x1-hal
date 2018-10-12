@@ -6,7 +6,7 @@ use gpio::PC0;
 use gpio::{PA10, PA13, PA14, PA15, PA2, PA3, PA9};
 use gpio::{PB10, PB11, PB6, PB7};
 
-use gpio::{AF0, AF4, AF6};
+use gpio::AF::{AF0, AF4, AF6};
 
 use super::*;
 

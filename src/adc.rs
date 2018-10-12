@@ -1,4 +1,39 @@
-//! ADC-related things
+//! Analog-digital conversion
+//!
+//! This is a (partial) implementation of the ADC for the STM32L0x1 family.
+//!
+//! The ADC has three basic run modes: Single, Continuous, and Discontinuous. For a discussion of
+//! these modes, see 13.3.9 for Single, 13.3.10 for Continuous, and 13.4.1 for Disconinuous modes.
+//! Only the `OneShot` trait is implemented, which greatly underutilizes the hardware.
+//!
+//! ```rust
+//! use stm32l0x1_hal;
+//!
+//! let d = stm32l0x1_hal::stm32l0x1::Peripherals::take().unwrap();
+//! let adc = d.ADC;
+//! let mut flash = d.FLASH.constrain();
+//! let mut pwr = d.PWR.constrain();
+//! let mut rcc = d.RCC.constrain().freeze(&mut flash, &mut pwr);
+//!
+//! // Configure the ADC
+//! let mut adc: adc::Adc<adc::Res12Bit, adc::Single> = adc::Adc::new(
+//!     adc,
+//!     Duration::new(0, 0),
+//!     adc::AdcClkSrc::Hsi16,
+//!     &pwr,
+//!     &rcc.cfgr.context().unwrap(),
+//!     &mut rcc.apb2,
+//!     );
+//!
+//! // Set up a pin that supports being used as an ADC input
+//! let gpioa = gpio::A::new(d.GPIOA, &mut self.rcc.iop);
+//! let mut light_sense = gpioa
+//!     .PA7
+//!     .into_input::<Floating>(&mut gpioa.moder, &mut gpioa.pupdr)
+//!     .into_analog(&mut gpioa.moder, &mut gpioa.pupdr);
+//!
+//! let lvl = block!(adc.read_channel(&mut light_sense)).unwrap();
+//! ```
 
 use core::marker::PhantomData;
 use core::time::Duration;
@@ -11,7 +46,26 @@ use power::{self, VCoreRange};
 use rcc::{self, ClockContext};
 use stm32l0x1::{adc, ADC};
 
-/// ADC related errors
+#[doc(hidden)]
+mod private {
+    #[doc(hidden)]
+    /// Sealed stops crates other than STM32L0x1-HAL from implementing traits that use it.
+    pub trait Sealed {}
+
+    impl Sealed for super::Res12Bit {}
+    impl Sealed for super::Res10Bit {}
+    impl Sealed for super::Res8Bit {}
+    impl Sealed for super::Res6Bit {}
+
+    impl Sealed for super::Single {}
+    impl Sealed for super::Continuous {}
+    impl Sealed for super::Discontinuous {}
+
+    impl Sealed for super::ScanUp {}
+    impl Sealed for super::ScanDown {}
+}
+
+/// ADC-related errors
 #[derive(Debug)]
 pub enum Error {
     /// A conversion on a different channel is already in progress
@@ -35,51 +89,51 @@ pub enum AdcClkSrc {
     Hsi16,
 }
 
-/// ADC resolution trait
-///
-/// Do not implement!
-pub trait Resolution {
+#[doc(hidden)]
+/// Helper trait to store configuration bits and word size for the given resolution
+pub trait Resolution: private::Sealed {
     /// Data size of ADC reading
     type Word;
     /// Config bits in register
     const BITS: u8;
 }
 
-/// 12-bit resolution
+/// 12-bit resolution (type state)
 pub struct Res12Bit(());
 impl Resolution for Res12Bit {
     type Word = u16;
     const BITS: u8 = 0b00;
 }
-/// 10-bit resolution
+/// 10-bit resolution (type state)
 pub struct Res10Bit(());
 impl Resolution for Res10Bit {
     type Word = u16;
     const BITS: u8 = 0b01;
 }
-/// 8-bit resolution
+/// 8-bit resolution (type state)
 pub struct Res8Bit(());
 impl Resolution for Res8Bit {
     type Word = u8;
     const BITS: u8 = 0b10;
 }
-/// 6-bit resolution
+/// 6-bit resolution (type state)
 pub struct Res6Bit(());
 impl Resolution for Res6Bit {
     type Word = u8;
     const BITS: u8 = 0b11;
 }
 
+#[doc(hidden)]
 /// Denotes ADC operating mode
-///
-/// Do not implement!
-pub trait RunMode {
+pub trait RunMode: private::Sealed {
     /// Auto-configure the ADC run mode
     #[doc(hidden)]
     fn cfg(cfgr1: &mut adc::cfgr1::W) -> &mut adc::cfgr1::W;
 }
 
-/// Single-ended conversion marker type
+/// Single (type state) conversion mode
+///
+/// The ADC performs a single sequence of conversions, converting all the channels once.
 pub struct Single(());
 impl RunMode for Single {
     fn cfg(w: &mut adc::cfgr1::W) -> &mut adc::cfgr1::W {
@@ -87,7 +141,11 @@ impl RunMode for Single {
     }
 }
 
-/// Continuous readings
+/// Continuous (type state) conversion mode
+///
+/// When a software or hardware trigger event occurs, the ADC performs a sequence of conversions,
+/// converting all the channels once and then automatically re-starts and continuously performs the
+/// same sequence of conversions.
 pub struct Continuous(());
 impl RunMode for Continuous {
     fn cfg(w: &mut adc::cfgr1::W) -> &mut adc::cfgr1::W {
@@ -95,46 +153,42 @@ impl RunMode for Continuous {
     }
 }
 
-/// Sequence of conversions
-pub struct Scan<DIR> {
-    #[doc(hidden)]
-    _dir: PhantomData<DIR>,
-}
-
-impl<DIR> RunMode for Scan<DIR>
-where
-    DIR: ScanDir,
-{
-    fn cfg(w: &mut adc::cfgr1::W) -> &mut adc::cfgr1::W {
-        w.scandir().bit(DIR::DIR)
-    }
-}
-
-/// Scan direction trait
+/// Discontinuous (type state) mode
 ///
-/// Do not implement!
-pub trait ScanDir {
-    /// Indicates direction; false = up, true = down
-    const DIR: bool;
-}
-
-/// Scan from 0 to 18
-pub struct ScanUp(());
-impl ScanDir for ScanUp {
-    const DIR: bool = false;
-}
-
-/// Scan from 18 to 0
-pub struct ScanDown(());
-impl ScanDir for ScanDown {
-    const DIR: bool = true;
-}
-
-/// Discontinuous sequence of conversions
+/// A hardware or software trigger event is required to start each conversion defined in the sequence.
 pub struct Discontinuous(());
 impl RunMode for Discontinuous {
     fn cfg(w: &mut adc::cfgr1::W) -> &mut adc::cfgr1::W {
         w.cont().clear_bit().discen().set_bit()
+    }
+}
+
+#[doc(hidden)]
+/// Helper trait to store configuration bit for setting the scan direction
+///
+/// Note: this configuration feature is not yet implemented. This is a placeholder.
+pub trait ScanDir: private::Sealed {
+    /// Helper to configure the ADC for the desired direction
+    fn cfg(w: &mut adc::cfgr1::W) -> &mut adc::cfgr1::W;
+}
+
+/// Scan from channel 0 to the highest-numbered channel (varies based on chip) (type state)
+///
+/// Note: this configuration feature is not yet implemented. This is a placeholder.
+pub struct ScanUp(());
+impl ScanDir for ScanUp {
+    fn cfg(w: &mut adc::cfgr1::W) -> &mut adc::cfgr1::W {
+        w.scandir().bit(false)
+    }
+}
+
+/// Scan from the highest-numbered channel to 0 (varies based on chip) (type state)
+///
+/// Note: this configuration feature is not yet implemented. This is a placeholder.
+pub struct ScanDown(());
+impl ScanDir for ScanDown {
+    fn cfg(w: &mut adc::cfgr1::W) -> &mut adc::cfgr1::W {
+        w.scandir().bit(true)
     }
 }
 
@@ -160,7 +214,7 @@ adc_pin!(PB1, 9);
 
 /// ADC interrupt sources
 pub enum Events {
-    /// Single-ended sample has completed
+    /// One-shot sample has completed
     SampleEnd,
     /// A running conversion has ended(?)
     ConversionEnd,
@@ -172,9 +226,7 @@ pub enum Events {
     Overrun,
 }
 
-// allow dead code because we want to hold the references until I get context stuff implemented
-#[allow(dead_code)]
-/// Represents the ADC peripheral
+/// The constrained ADC peripheral
 pub struct Adc<RES, MODE>
 where
     RES: Resolution,
@@ -197,6 +249,7 @@ where
     RES: Resolution,
     MODE: RunMode,
 {
+    /// (Private) access to the inner ADC peripheral register set
     fn adc(&mut self) -> &mut ADC {
         &mut self.adc
     }
@@ -250,7 +303,7 @@ where
     RES: Resolution,
     MODE: RunMode,
 {
-    /// Create a new adc
+    /// Constrain the ADC register set and create a new Adc peripheral
     pub fn new<VDD, VCORE, RTC>(
         raw: ADC,
         samp_time: Duration,
@@ -361,6 +414,7 @@ where
         adc
     }
 
+    /// Start conversion
     fn start(&mut self) {
         self.adc().cr.modify(|_, w| w.adstart().set_bit());
     }

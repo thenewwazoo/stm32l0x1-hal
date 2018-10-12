@@ -1,4 +1,46 @@
-//! Serial
+//! USART(s) and LPUART
+//!
+//! This is an implementation of RS232 USART(s) and LPUART. The interface for the LPUART and USARTs
+//! is largely the same, though their interaction with various power modes is different (see the
+//! Reference Manual).
+//!
+//! ```rust
+//! extern crate stm32l0x1_hal;
+//!
+//! use stm32l0x1_hal::common::Constrain;
+//!
+//! let d = stm32l0x1_hal::stm32l0x1::Peripherals::take().unwrap();
+//!
+//! let mut rcc = d.RCC.constrain();
+//! let mut flash = d.FLASH.constrain();
+//!
+//! rcc.freeze(&mut flash, &mut pwr);
+//! let clk_ctx = rcc.cfgr.context().unwrap();
+//!
+//! let mut gpiob = gpio::B::new(d.GPIOB, &mut rcc.iop);
+//!
+//! // VCP USART
+//! let vcp_rx = gpioa.PA15.into_output::<PushPull, Floating>().into_alt_fun::<AF4>();
+//! vcp_rx.set_pin_speed(PinSpeed::VeryHigh);
+//!
+//! let vcp_tx = gpioa.PA2.into_output::<PushPull, Floating>().into_alt_fun::<AF4>();
+//! vcp_tx.set_pin_speed(PinSpeed::VeryHigh);
+//!
+//! let vcp_serial = Serial::usart2(
+//!     d.USART2,
+//!     (vcp_tx, vcp_rx),
+//!     Bps(115200),
+//!     clocking::USARTClkSource::HSI16,
+//!     &clk_ctx,
+//!     &mut rcc.apb1,
+//!     &mut rcc.ccipr);
+//!
+//! let (mut tx, mut rx) = vcp_serial.split();
+//!
+//! loop {
+//!     block!(tx.write(block!(rx.read()).unwrap())).unwrap();
+//! }
+//! ```
 
 use core::marker::PhantomData;
 use core::ptr;
@@ -19,7 +61,7 @@ pub mod stm32l011x3_4;
 #[cfg(any(feature = "STM32L031x4", feature = "STM32L031x6"))]
 pub mod stm32l031x4_6;
 
-/// Interrupt event
+/// UART interrupt event sources
 pub enum Event {
     /// New data has been received or overrun error detected
     Rxne,
@@ -35,7 +77,7 @@ pub enum Event {
     Eie,
 }
 
-/// Serial error
+/// Serial errors
 #[derive(Debug)]
 pub enum Error {
     /// Framing error
@@ -57,11 +99,16 @@ pub enum SleepError {
     BadSourceClock,
 }
 
-// FIXME these should be "closed" traits
-/// TX pin - DO NOT IMPLEMENT THIS TRAIT
+#[doc(hidden)]
+/// Marker trait to identify that a GPIO pin can be used as Tx
+///
+/// Note: this trait SHALL NOT be implemented, and should be considered Sealed
 pub unsafe trait TxPin<USART> {}
 
-/// RX pin - DO NOT IMPLEMENT THIS TRAIT
+#[doc(hidden)]
+/// Marker trait to identify that a GPIO pin can be used as Rx
+///
+/// Note: this trait SHALL NOT be implemented, and should be considered Sealed
 pub unsafe trait RxPin<USART> {}
 
 /// Serial abstraction
@@ -71,12 +118,12 @@ pub struct Serial<USART, PINS> {
     pins: PINS,
 }
 
-/// Serial receiver
+/// Serial receiver channel
 pub struct Rx<USART> {
     _usart: PhantomData<USART>,
 }
 
-/// Serial transmitter
+/// Serial transmitter channel
 pub struct Tx<USART> {
     _usart: PhantomData<USART>,
 }
@@ -95,7 +142,7 @@ macro_rules! hal {
 
             impl<TX, RX> Serial<$USARTX, (TX, RX)> {
 
-                /// Create a $USARTX peripheral to provide 8N1 asynchronous serial communication
+                /// Create a USART peripheral to provide 8N1 asynchronous serial communication
                 /// with an oversampling rate of 16.
                 pub fn $usartX(
                     usart: $USARTX,
@@ -185,7 +232,7 @@ macro_rules! hal {
 
                 }
 
-                /// Starts listening for an interrupt event
+                /// Start listening for an interrupt event
                 pub fn listen(&mut self, event: Event) {
                     match event {
                         Event::Rxne => self.usart.cr1.modify(|_, w| w.rxneie().set_bit()),
@@ -197,7 +244,7 @@ macro_rules! hal {
                     }
                 }
 
-                /// Starts listening for an interrupt event
+                /// Stop listening for an interrupt event
                 pub fn unlisten(&mut self, event: Event) {
                     match event {
                         Event::Rxne => self.usart.cr1.modify(|_, w| w.rxneie().clear_bit()),
@@ -209,6 +256,10 @@ macro_rules! hal {
                     }
                 }
 
+                /// Split the `Serial` object into component Tx and Rx parts
+                ///
+                /// Note that once this is done, you cannot get the `Serial` object back! It is
+                /// gone.
                 pub fn split(self) -> (Tx<$USARTX>, Rx<$USARTX>) {
                     (
                         Tx {
@@ -417,6 +468,10 @@ impl<TX, RX> Serial<LPUART1, (TX, RX)> {
         }
     }
 
+    /// Split the `Serial` object into component Tx and Rx parts
+    ///
+    /// Note that once this is done, you cannot get the `Serial` object back! It is
+    /// gone.
     pub fn split(self) -> (Tx<LPUART1>, Rx<LPUART1>) {
         (
             Tx {
@@ -487,7 +542,7 @@ impl serial::Write<u8> for Tx<LPUART1> {
 #[derive(Debug)]
 /// The event which activates the WUF (wakeup from Stop mode flag)
 pub enum SerialWakeSource {
-    /// WUF active on address match (as defined by ADD[7:0] and ADDM7)
+    /// WUF active on address match (as defined by ADD\[7:0\] and ADDM7)
     AddrMatch {
         /// Address of the USART node
         add: u8,

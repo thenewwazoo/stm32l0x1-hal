@@ -1,9 +1,22 @@
 //! Flash memory
+//!
+//! This currently implements basic chip startup-related functions. You will probably not need to
+//! use this interface directly, as the Flash peripheral is mostly configured by `Rcc::freeze`
 
 use common::Constrain;
 use power::{self, Power};
 use stm32l0x1::{flash, FLASH};
 use time::Hertz;
+
+mod private {
+    /// The Sealed trait prevents other crates from implementing helper traits defined here
+    pub trait Sealed {}
+
+    impl Sealed for ::power::VCoreRange1 {}
+    impl Sealed for ::power::VCoreRange2 {}
+    impl Sealed for ::power::VCoreRange3 {}
+
+}
 
 impl Constrain<Flash> for FLASH {
     fn constrain(self) -> Flash {
@@ -11,18 +24,24 @@ impl Constrain<Flash> for FLASH {
     }
 }
 
+/// A constrained FLASH peripheral
 pub struct Flash {
+    /// FLASH_ACR
     acr: ACR,
 }
 
 impl Flash {
+    /// Sets the clock cycle latency for the flash peripheral based on power level and clock speed
     pub fn set_latency<VDD, VCORE, RTC>(&mut self, sysclk: Hertz, _pwr: &Power<VDD, VCORE, RTC>)
     where
         VCORE: Latency,
     {
-        VCORE::latency(sysclk).set(&mut self.acr);
+        unsafe {
+            VCORE::latency(sysclk).set(&mut self.acr);
+        }
     }
 
+    /// Retrieves the clock cycle latency based on current register settings
     pub fn get_latency(&mut self) -> FlashLatency {
         match self.acr.acr().read().latency().bit() {
             true => FlashLatency::_1_Clk,
@@ -32,7 +51,7 @@ impl Flash {
 }
 
 /// Couples the necessary flash latency to the VCore power range of the cpu
-pub trait Latency {
+pub trait Latency: private::Sealed {
     /// Taken from fig. 11 "Performance versus Vdd and Vcore range"
     fn latency(f: Hertz) -> FlashLatency;
 }
@@ -64,13 +83,20 @@ impl Latency for power::VCoreRange3 {
 }
 
 #[allow(non_camel_case_types)]
+/// Flash latencies available for this chip
 pub enum FlashLatency {
+    /// Flash reads have a latency of 1 clock cycle
     _1_Clk,
+    /// Flash reads have a latency of 0 clock cycles
     _0_Clk,
 }
 
 impl FlashLatency {
-    pub fn set(&self, acr: &mut ACR) {
+    /// Use the ACR register to set the flash value according to the variant
+    ///
+    /// This function is unsafe because it does not (cannot) check to see that the latency value
+    /// being set is appropriate for the current VCore range and clock speed of the chip
+    pub unsafe fn set(&self, acr: &mut ACR) {
         match self {
             FlashLatency::_1_Clk => acr.flash_latency_1(),
             FlashLatency::_0_Clk => acr.flash_latency_0(),
@@ -78,7 +104,7 @@ impl FlashLatency {
     }
 }
 
-/// Access control register
+/// Opaque access control register
 pub struct ACR(());
 
 impl ACR {

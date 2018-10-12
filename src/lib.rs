@@ -1,6 +1,13 @@
-//! STM32L0x1 HAl
+//! STM32L0x1 HAL
+//!
+//! This HAL provides an implementation of the `embedded-hal` traits for the STM32L0x1 family of
+//! microcontrollers.
+//!
+//! **NOTE**: This crate contains chip-specific features and modules. Where convenient, common
+//! peripherals (e.g. GPIO ports) are implemented by default, but some chips have more than others.
+
 #![no_std]
-//#![deny(missing_docs)]
+#![deny(missing_docs)]
 #![feature(never_type)]
 
 extern crate cortex_m;

@@ -9,7 +9,9 @@ use rcc::ClockContext;
 
 /// System timer (SysTick) as a delay provider
 pub struct Delay<'c> {
+    /// Reference to the (frozen) clocks
     clocks: &'c ClockContext,
+    /// The SYST peripheral
     syst: SYST,
 }
 

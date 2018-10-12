@@ -1,7 +1,35 @@
-//! STM32L0x1 Reset and Clock Control peripheral
+//! Reset and Clock Control peripheral
 //!
 //! This module contains a partial abstraction over the RCC peripheral, as well as types and traits
-//! related to the various clocks on the chip.
+//! related to the various clocks on the chip. The usual pattern here is to mutate clock settings
+//! as you wish them to be, freeze the clocks, and then pass references to the `ClockContext` to
+//! other peripherals that need frequency information.
+//!
+//! ```
+//! use stm32l0x1_hal;
+//!
+//! let d = stm32l0x1_hal::stm32l0x1::Peripherals::take().unwrap();
+//! let mut flash = d.FLASH.constrain();
+//! let mut pwr = d.POWER.constrain();
+//! let mut rcc = d.RCC.constrain();
+//!
+//! {
+//!     let cfgr: &mut stm32l0x1_hal::rcc::CFGR = rcc.cfgr.config().unwrap(); // for convenience o
+//!
+//!     cfgr.msi.enable(); // enable the MSI clock (it's enabled by default)
+//!     cfgr.msi.set_freq(clocking::MsiFreq::Hz_131_072); // set it to 131 kHz
+//!     cfgr.hsi16.enable();             // turn on the 16 MHz internal RC
+//!     cfgr.hclk_fclk = Hertz(131_072); // the HCLK bus should not be prescaled
+//!     cfgr.pclk1 = Hertz(131_072);     // same for the APB1 clock
+//!     cfgr.pclk2 = Hertz(131_072);     // and the same for the APB2 clock
+//!     cfgr.sysclk_src = stm32l0x1_hal::rcc::clocking::SysClkSource::MSI;
+//!     // use the MSI to clock the CPU
+//! }
+//!
+//! rcc.freeze(&mut flash, &mut pwr);
+//!
+//! let clk_ctx = rcc.cfgr.context().unwrap(); // get a clk_ctx handle to pass around
+//! ```
 
 use core::mem::replace;
 
@@ -63,6 +91,18 @@ pub struct Rcc {
 }
 
 impl Rcc {
+    /// "Freeze" the clock configuration
+    ///
+    /// This is an operation upon which _most_ other operations will depend. This provides a
+    /// `ClockContext` that provides clocking information to other peripherals, and which is used
+    /// to calculate bus timing info.
+    ///
+    /// This function also manipulates the `Flash` and `Power` settings of the chip to achieve the
+    /// requested clock speeds.
+    ///
+    /// Note that this `mem::replace()`s the contents of `self.cfgr`. You cannot change the clock
+    /// configuration after this function is called, and future calls to `rcc.cfgr.config()` will
+    /// return an `Err`.
     pub fn freeze<VDD, VCORE, RTC>(
         &mut self,
         flash: &mut flash::Flash,
@@ -192,7 +232,7 @@ impl Rcc {
 
                 if VCORE::range() > pwr.read_vcore_range() {
                     // we're increasing the power, so set up power before setting the clock
-                    pwr.enact(&mut self.apb1);
+                    unsafe { pwr.enact(&mut self.apb1) };
                 }
 
                 self.cfgr.config().unwrap().inner().write(|w| unsafe {
@@ -208,7 +248,7 @@ impl Rcc {
 
                 if VCORE::range() <= pwr.read_vcore_range() {
                     // lower the power after decreasing the clock
-                    pwr.enact(&mut self.apb1);
+                    unsafe { pwr.enact(&mut self.apb1) };
                 }
 
                 flash.set_latency(sysclk, pwr);
@@ -220,7 +260,7 @@ impl Rcc {
 
                 if VCORE::range() > pwr.read_vcore_range() {
                     // increase power before raising the clock
-                    pwr.enact(&mut self.apb1);
+                    unsafe { pwr.enact(&mut self.apb1) };
                 }
 
                 self.cfgr.config().unwrap().inner().write(|w| unsafe {
@@ -236,7 +276,7 @@ impl Rcc {
 
                 if VCORE::range() <= pwr.read_vcore_range() {
                     // lower the power after decreasing the clock
-                    pwr.enact(&mut self.apb1);
+                    unsafe { pwr.enact(&mut self.apb1) };
                 }
             }
             _ => {
@@ -244,7 +284,7 @@ impl Rcc {
 
                 if VCORE::range() > pwr.read_vcore_range() {
                     // increase power before raising the clock
-                    pwr.enact(&mut self.apb1);
+                    unsafe { pwr.enact(&mut self.apb1) };
                 }
 
                 self.cfgr.config().unwrap().inner().write(|w| unsafe {
@@ -260,7 +300,7 @@ impl Rcc {
 
                 if VCORE::range() <= pwr.read_vcore_range() {
                     // decrease power after lowering the clock
-                    pwr.enact(&mut self.apb1);
+                    unsafe { pwr.enact(&mut self.apb1) };
                 }
             }
         };
@@ -458,6 +498,7 @@ pub enum CfgErr {
 }
 
 impl ClockConfig {
+    /// Retrieve the configurable clock settings, if not yet frozen
     pub fn config(&mut self) -> Result<&mut CFGR, CfgErr> {
         match self {
             ClockConfig::Open(cfgr) => Ok(cfgr),
@@ -465,6 +506,7 @@ impl ClockConfig {
         }
     }
 
+    /// Retrieve the frozen clock settings, if frozen
     pub fn context(&self) -> Result<&ClockContext, CfgErr> {
         match self {
             ClockConfig::Frozen(ctx) => Ok(ctx),

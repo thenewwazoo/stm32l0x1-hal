@@ -8,8 +8,18 @@ use power;
 use rcc;
 use time::Hertz;
 
+mod private {
+    pub trait Sealed {}
+
+    impl Sealed for super::LowSpeedInternalRC {}
+    impl Sealed for super::MediumSpeedInternalRC {}
+    impl Sealed for super::HighSpeedInternal16RC {}
+    impl Sealed for super::LowSpeedExternalOSC {}
+
+}
+
 /// Types of clocks that have a frequency
-pub trait ClkSrc {
+pub trait ClkSrc : private::Sealed {
     /// Returns the frequency of the clock, if the clock exists, else `None`.
     fn freq(&self) -> Option<Hertz>;
 }

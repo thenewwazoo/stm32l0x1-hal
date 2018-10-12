@@ -1,12 +1,28 @@
 //! Power configuration and management
+//!
+//! At present this module only contains functions to permit setting the appropriate VCore range
+//! for a desired frequency. You should probably not need to use this API yourself, as this is done
+//! by the `Rcc::freeze` method.
+//!
+//! If you _do_ decide to use this directly for some reason, please note that changing the `VCORE`
+//! type state of the Power object _does not take effect immediately_. This is due to the fact that
+//! we must be able to control the ordering of changing the power level and adjusting the clocks.
+//! In order to make the type state change take effect, you must call the `enact` method.
 
 use core::marker::PhantomData;
 
 use common::Constrain;
-//use cortex_m::{self, asm};
 use rcc;
 use stm32l0x1::{pwr, PWR};
 use time::Hertz;
+
+mod private {
+    pub trait Sealed {}
+
+    impl Sealed for super::VCoreRange1 {}
+    impl Sealed for super::VCoreRange2 {}
+    impl Sealed for super::VCoreRange3 {}
+}
 
 // Why do I impl Constrain twice? Good question. The VDD range is physical property, and I can't
 // pick the correct value for you. The VCore range and RTC enable state are set at startup time by
@@ -45,6 +61,7 @@ impl Constrain<Power<VddHigh, VCoreRange2, RtcDis>> for PWR {
     }
 }
 
+/// The constrained Power peripheral
 pub struct Power<VDD, VCORE, RTC> {
     /// Power control register
     cr: CR,
@@ -87,13 +104,19 @@ pub struct VddHigh(());
 pub struct VddLow(());
 
 #[derive(PartialOrd, PartialEq)]
+/// Available VCore Ranges
 pub enum VCoreRange {
+    /// ~1.2V
     Range3,
+    /// ~1.5V
     Range2,
+    /// 1.8V
     Range1,
 }
 
 impl VCoreRange {
+    #[doc(hidden)]
+    /// Helper method for configuration bits
     pub fn bits(&self) -> u8 {
         match self {
             VCoreRange::Range1 => 0b01,
@@ -103,11 +126,16 @@ impl VCoreRange {
     }
 }
 
-pub trait Vos {
+#[doc(hidden)]
+/// Helper trait to turn VOS bits into a usable VCoreRange
+pub trait Vos: private::Sealed {
+    /// Get the range based on the type
     fn range() -> VCoreRange;
 }
 
-pub trait FreqLimit {
+#[doc(hidden)]
+/// Helper trait to correlate vcore ranges with maximum frequencies
+pub trait FreqLimit: private::Sealed {
     fn max_freq() -> Hertz;
 }
 
@@ -158,6 +186,7 @@ impl FreqLimit for VCoreRange3 {
 // constructing a Power<VddLow, VCoreRange1, RTC>.
 
 impl<VDD, RTC> Power<VDD, VCoreRange2, RTC> {
+    /// Change the VDD range (logically - not physically)
     pub fn into_vdd_range<NEWVDD>(self) -> Power<VDD, VCoreRange2, RTC> {
         Power {
             cr: self.cr,
@@ -170,6 +199,7 @@ impl<VDD, RTC> Power<VDD, VCoreRange2, RTC> {
 }
 
 impl<VDD, RTC> Power<VDD, VCoreRange3, RTC> {
+    /// Change the VDD range (logically - not physically)
     pub fn into_vdd_range<NEWVDD>(self) -> Power<VDD, VCoreRange3, RTC> {
         Power {
             cr: self.cr,
@@ -182,6 +212,9 @@ impl<VDD, RTC> Power<VDD, VCoreRange3, RTC> {
 }
 
 impl<VCORE, RTC> Power<VddHigh, VCORE, RTC> {
+    /// Change the power peripheral's VCoreRange type state.
+    ///
+    /// This does not take effect until `enact()` is called
     pub fn into_vcore_range<NEWRANGE>(self) -> Power<VddHigh, NEWRANGE, RTC>
     where
         NEWRANGE: Vos,
@@ -197,6 +230,9 @@ impl<VCORE, RTC> Power<VddHigh, VCORE, RTC> {
 }
 
 impl<RTC> Power<VddLow, VCoreRange2, RTC> {
+    /// Change the power peripheral's VCoreRange type state.
+    ///
+    /// This does not take effect until `enact()` is called
     pub fn into_vcore_range(self) -> Power<VddLow, VCoreRange3, RTC> {
         Power {
             cr: self.cr,
@@ -209,6 +245,9 @@ impl<RTC> Power<VddLow, VCoreRange2, RTC> {
 }
 
 impl<RTC> Power<VddLow, VCoreRange3, RTC> {
+    /// Change the power peripheral's VCoreRange type state.
+    ///
+    /// This does not take effect until `enact()` is called
     pub fn into_vcore_range(self) -> Power<VddLow, VCoreRange2, RTC> {
         Power {
             cr: self.cr,
@@ -224,6 +263,8 @@ impl<VDD, VCORE, RTC> Power<VDD, VCORE, RTC>
 where
     VCORE: Vos,
 {
+    /// Enable the POWER clock while the closure is executed
+    ///
     /// The PWREN bit must be set while changing the configuration of the power peripheral. This
     /// provides a context within which this is true.
     fn while_clk_en<F>(apb1: &mut rcc::APB1, mut op: F)
@@ -260,17 +301,22 @@ where
         while self.cr.inner().read().dbp().bit_is_set() {}
     }
 
-    pub fn enact(&mut self, apb1: &mut rcc::APB1) {
+    /// Enact the current Power type states
+    ///
+    /// This function is unsafe because it does not validate the requested setting against the
+    /// currently configured clock. `Rcc::freeze` takes care of this for you.
+    pub unsafe fn enact(&mut self, apb1: &mut rcc::APB1) {
         Power::<VDD, VCORE, RTC>::while_clk_en(apb1, || {
             self.cr
                 .inner()
-                .modify(|_, w| unsafe { w.vos().bits(VCORE::range().bits()) });
+                .modify(|_, w| w.vos().bits(VCORE::range().bits()));
 
             // 4. Poll VOSF bit of in PWR_CSR register. Wait until it is reset to 0.
             while self.csr.inner().read().vosf().bit_is_set() {}
         });
     }
 
+    /// Read the current VCoreRange value from the register
     pub fn read_vcore_range(&self) -> VCoreRange {
         match self.cr.inner().read().vos().bits() {
             0b01 => VCoreRange::Range1,
@@ -281,13 +327,16 @@ where
     }
 }
 
+/// RTC enabled (type state)
 pub struct RtcEn(());
+/// RTC disabled (type state)
 pub struct RtcDis(());
 
 impl<VDD, VCORE> Power<VDD, VCORE, RtcEn>
 where
     VCORE: Vos,
 {
+    /// Disable the RTC, changing the type state of self
     pub fn disable_rtc(self, apb1: &mut rcc::APB1) -> Power<VDD, VCORE, RtcDis> {
         // (Disable the power interface clock)
         apb1.enr().modify(|_, w| w.pwren().clear_bit());
@@ -309,6 +358,7 @@ impl<VDD, VCORE> Power<VDD, VCORE, RtcDis>
 where
     VCORE: Vos,
 {
+    /// Enable the RTC, changing the type state of self
     pub fn enable_rtc(
         mut self,
         cr: &mut rcc::CR,

@@ -1,7 +1,7 @@
 use i2c::SclPin;
 use i2c::SdaPin;
 
-use gpio::{AF1, AF4};
+use gpio::AF::{AF1, AF4};
 use gpio::{PA10, PA9};
 use gpio::{PB6, PB7, PB8, PB9};
 use stm32l0x1::I2C1;

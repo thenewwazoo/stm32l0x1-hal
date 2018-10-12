@@ -1,29 +1,61 @@
 //! General Purpose Input / Output
 //!
-//! This module was written with only the STM32L011K4 (on the NUCLEO board) on-hand. Future
-//! refinements to expand to other packages is TODO.
+//! Implementation of the GPIO functionality for the STM32L0x1.
+//!
+//! Typical usage is to create a GPIO instance by trading in the Peripheral member:
+//!
+//! ```
+//! use stm32l0x1_hal as hal;
+//!
+//! let d = hal::stm32l0x1::Peripherals::take().unwrap();
+//! let mut power = d.PWR.constrain();
+//! let mut flash = d.FLASH.constrain();
+//! let mut rcc = d.RCC.constrain().freeze(&mut flash, &mut pwr);
+//!
+//! let gpioa = gpio::A::new(d.GPIOA, &mut self.rcc.iop);
+//!
+//! // configure the pin as an output
+//! let pin = gpioa.PA0.into_output::<PushPull, Floating>();
+//!
+//! // as an analog pin
+//! let pin = pin.into_analog();
+//!
+//! // and so on
+//! ```
 
 #![allow(unknown_lints)]
 #![allow(clippy)]
 
 use core::marker::PhantomData;
-use core::ops::Deref;
 
-use hal::digital::{toggleable, InputPin, OutputPin, StatefulOutputPin};
+use hal::digital::{InputPin, OutputPin, StatefulOutputPin};
 use rcc;
 
 use stm32l0x1;
 
-/// Analog mode trait
-/// Implemented only for corresponding structs.
-///
-/// Note: MUST not be implemented by user.
-pub trait AnalogMode {
+#[doc(hidden)]
+mod private {
+    /// Sealed stops crates other than STM32L0x1-HAL from implementing traits that use it.
+    pub trait Sealed {}
+
+    impl Sealed for super::Analog {}
+    impl Sealed for super::Floating {}
+    impl Sealed for super::PullDown {}
+    impl Sealed for super::PullUp {}
+    impl<MODE> Sealed for super::Input<MODE> {}
+    impl Sealed for super::PushPull {}
+    impl Sealed for super::OpenDrain {}
+    impl<MODE, PUMODE> Sealed for super::Output<MODE, PUMODE> {}
+}
+
+#[doc(hidden)]
+/// Helper trait for configuring PUPDR registers for analog mode
+pub trait AnalogMode: private::Sealed {
     /// Used to set pin to floating
     fn modify_pupdr_bits(original: u32, offset: u32) -> u32;
 }
 
-/// Analog mode (type state)
+/// Analog mode (type state) indicating that a pin is configured in Analog (high-z) input mode
 pub struct Analog(());
 impl AnalogMode for Analog {
     #[inline]
@@ -32,58 +64,55 @@ impl AnalogMode for Analog {
     }
 }
 
-/// Input Mode Trait
-/// Implemented only for corresponding structs.
-///
-/// Note: MUST not be implemented by user.
-pub trait InputMode {
+#[doc(hidden)]
+/// Helper trait for configuring PUPDR registers for the desired pull up/down mode
+pub trait PullMode: private::Sealed {
     /// Manipulate pull up/down bits
     fn modify_pupdr_bits(original: u32, offset: u32) -> u32;
 }
 
-/// Floating input (type state)
+/// Floating input (type state) indicating that a pin is floating
 pub struct Floating;
-impl InputMode for Floating {
+impl PullMode for Floating {
     #[inline]
     fn modify_pupdr_bits(original: u32, offset: u32) -> u32 {
         original & !(0b11 << offset)
     }
 }
 
-/// Pulled down input (type state)
+/// Pulled down input (type state) indicating that the pin is configured for pull-down
 pub struct PullDown;
-impl InputMode for PullDown {
+impl PullMode for PullDown {
     #[inline]
     fn modify_pupdr_bits(original: u32, offset: u32) -> u32 {
         (original & !(0b11 << offset)) | (0b10 << offset)
     }
 }
 
-/// Pulled up input (type state)
+/// Pulled up input (type state) indicating that the pin is configured for pull-up
 pub struct PullUp;
-impl InputMode for PullUp {
+impl PullMode for PullUp {
     #[inline]
     fn modify_pupdr_bits(original: u32, offset: u32) -> u32 {
         (original & !(0b11 << offset)) | (0b01 << offset)
     }
 }
 
-/// Input mode (type state)
+#[doc(hidden)]
+/// Input mode (type state) indicating that the pin is configured as an input
 pub struct Input<MODE> {
     #[doc(hidden)]
     _mode: PhantomData<MODE>,
 }
 
-/// Output Mode Trait
-/// Implemented only for corresponding structs.
-///
-/// Note: MUST not be implemented by user.
-pub trait OutputMode {
+#[doc(hidden)]
+/// Helper trait for configuring the OTYPER register for the desired output drive mode
+pub trait OutputMode: private::Sealed {
     /// Modify output type bits
     fn modify_otyper_bits(original: u32, idx: u8) -> u32;
 }
 
-/// Push pull output (type state)
+/// Push pull output (type state) indicating that the pin is configured for push-pull
 pub struct PushPull;
 impl OutputMode for PushPull {
     #[inline]
@@ -92,7 +121,7 @@ impl OutputMode for PushPull {
     }
 }
 
-/// Open drain output (type state)
+/// Open drain output (type state) indicating that the pin is configured as an open-drain
 pub struct OpenDrain;
 impl OutputMode for OpenDrain {
     #[inline]
@@ -101,7 +130,7 @@ impl OutputMode for OpenDrain {
     }
 }
 
-/// Output mode (type state)
+/// Output mode (type state) indicating that the pin is configured as an output
 pub struct Output<MODE, PUMODE> {
     #[doc(hidden)]
     _mode: PhantomData<MODE>,
@@ -127,31 +156,37 @@ macro_rules! impl_parts {
         $(
             use stm32l0x1::$GPIOX;
             impl AFRL<$GPIOX> {
+                /// Opaque AFRL register
                 pub(crate) fn afr(&mut self) -> &stm32l0x1::$gpiox::AFRL {
                     unsafe { &(*$GPIOX::ptr()).afrl }
                 }
             }
             impl AFRH<$GPIOX> {
+                /// Opaque AFRH register
                 pub(crate) fn afr(&mut self) -> &stm32l0x1::$gpiox::AFRH {
                     unsafe { &(*$GPIOX::ptr()).afrh }
                 }
             }
             impl MODER<$GPIOX> {
+                /// Opaque MODER register
                 pub(crate) fn moder(&mut self) -> &stm32l0x1::$gpiox::MODER {
                     unsafe { &(*$GPIOX::ptr()).moder }
                 }
             }
             impl OTYPER<$GPIOX> {
+                /// Opaque OTYPER register
                 pub(crate) fn otyper(&mut self) -> &stm32l0x1::$gpiox::OTYPER {
                     unsafe { &(*$GPIOX::ptr()).otyper }
                 }
             }
             impl PUPDR<$GPIOX> {
+                /// Opaque PUPDR register
                 pub(crate) fn pupdr(&mut self) -> &stm32l0x1::$gpiox::PUPDR {
                     unsafe { &(*$GPIOX::ptr()).pupdr }
                 }
             }
             impl OSPEEDR<$GPIOX> {
+                /// Opaque OSPEEDR register
                 pub(crate) fn ospeedr(&mut self) -> &stm32l0x1::$gpiox::OSPEEDR {
                     unsafe { &(*$GPIOX::ptr()).ospeedr }
                 }
@@ -168,11 +203,14 @@ macro_rules! impl_gpio {
         impl_gpio!($name, $GPIOX, $gpioen, $gpiorst, AFRL: [$($PXiL, $iL;)*], AFRH: []);
     };
     ($name:ident, $GPIOX:ident, $gpioen:ident, $gpiorst:ident, AFRL: [$($PXiL:ident, $iL:expr;)*], AFRH: [$($PXiH:ident, $iH:expr;)*]) => {
+
         impl_pins!($GPIOX, AFRL: [$($PXiL, $iL;)*]);
         impl_pins!($GPIOX, AFRH: [$($PXiH, $iH;)*]);
 
         #[allow(non_snake_case)]
-        ///GPIO
+        /// GPIO
+        ///
+        /// Once created, a GPIO instance is usually pulled apart by moving its fields.
         pub struct $name {
             $(
                 /// Pin
@@ -185,7 +223,7 @@ macro_rules! impl_gpio {
         }
 
         impl $name {
-            /// Create a new GPIO module object
+            /// Trade the GPIO registers for an instance
             pub fn new(_gpio: $GPIOX, iop: &mut rcc::IOP) -> Self {
                 iop.enr().modify(|_,w| w.$gpioen().set_bit());
                 while iop.enr().read().$gpioen().bit_is_clear() {}
@@ -204,7 +242,7 @@ macro_rules! impl_gpio {
 
 macro_rules! impl_pin {
     ($GPIOX:ident, $PXi:ident, $AFR:ident, $i:expr) => {
-        /// Specific Pin
+        /// Specific GPIO pin
         pub struct $PXi<MODE>(PhantomData<MODE>);
 
         impl<MODE> $PXi<MODE> {
@@ -225,7 +263,7 @@ macro_rules! impl_pin {
             }
 
             /// Configures the PIN to operate as Input Pin according to Mode.
-            pub fn into_input<Mode: InputMode>(self) -> $PXi<Input<Mode>> {
+            pub fn into_input<Mode: PullMode>(self) -> $PXi<Input<Mode>> {
                 let mut moder: MODER<$GPIOX> = MODER(PhantomData);
                 let mut pupdr: PUPDR<$GPIOX> = PUPDR(PhantomData);
 
@@ -239,7 +277,7 @@ macro_rules! impl_pin {
                 $PXi(PhantomData)
             }
 
-            /// Set pin drive strength
+            /// Set pin drive strength of the pin
             #[inline]
             pub fn set_pin_speed(&self, spd: PinSpeed) {
                 let mut ospeedr: OSPEEDR<$GPIOX> = OSPEEDR(PhantomData);
@@ -249,8 +287,8 @@ macro_rules! impl_pin {
                 });
             }
 
-            /// Configures the PIN to operate as Output Pin according to Mode.
-            pub fn into_output<OMode: OutputMode, PUMode: InputMode>(
+            /// Configures the PIN to operate as Output Pin according to OMode and PUMode
+            pub fn into_output<OMode: OutputMode, PUMode: PullMode>(
                 self,
             ) -> $PXi<Output<OMode, PUMode>> {
                 let mut moder: MODER<$GPIOX> = MODER(PhantomData);
@@ -333,83 +371,6 @@ macro_rules! impl_pins {
     }
 }
 
-/// Generic LED
-pub struct Led<PIN>(PIN);
-impl<PIN: OutputPin + StatefulOutputPin> Led<PIN> {
-    #[inline]
-    /// Turns LED off.
-    pub fn off(&mut self) {
-        self.0.set_low();
-    }
-    #[inline]
-    #[allow(wrong_self_convention)]
-    /// Checks whether LED is off
-    pub fn is_off(&mut self) -> bool {
-        self.0.is_set_low()
-    }
-    #[inline]
-    /// Turns LED on.
-    pub fn on(&mut self) {
-        self.0.set_high()
-    }
-    #[inline]
-    #[allow(wrong_self_convention)]
-    /// Checks whether LED is on
-    pub fn is_on(&mut self) -> bool {
-        self.0.is_set_high()
-    }
-}
-
-impl<PIN: OutputPin> OutputPin for Led<PIN> {
-    #[inline]
-    fn set_high(&mut self) {
-        self.0.set_high();
-    }
-    #[inline]
-    fn set_low(&mut self) {
-        self.0.set_low();
-    }
-}
-
-impl<PIN: StatefulOutputPin> StatefulOutputPin for Led<PIN> {
-    #[inline]
-    fn is_set_high(&self) -> bool {
-        self.0.is_set_high()
-    }
-    #[inline]
-    fn is_set_low(&self) -> bool {
-        self.0.is_set_low()
-    }
-}
-
-impl<PIN: OutputPin + StatefulOutputPin> toggleable::Default for Led<PIN> {}
-
-impl<PIN> Deref for Led<PIN> {
-    type Target = PIN;
-
-    #[inline]
-    fn deref(&self) -> &PIN {
-        &self.0
-    }
-}
-
-#[allow(unused_macros)]
-macro_rules! define_led {
-    ($(#[$attr:meta])* $name:ident, $typ:ty) => {
-        $(#[$attr])*
-            pub type $name = Led<$typ>;
-        impl Led<$typ> {
-            #[inline]
-            ///Creates a new instance of LED.
-            ///
-            ///Defined only for these PINs that can be used as LED.
-            pub fn new(pin: $typ) -> Self {
-                Led(pin)
-            }
-        }
-    }
-}
-
 /// Opaque AFRL register
 pub struct AFRL<GPIO>(PhantomData<GPIO>);
 /// Opaque AFRH register
@@ -426,25 +387,29 @@ pub struct OSPEEDR<GPIO>(PhantomData<GPIO>);
 macro_rules! impl_af {
     ( [$($af:ident, $i:expr;)*] ) => {
         $(
-            /// Alternate function $af
+            /// Alternate pin function (type state)
             pub struct $af;
-            impl AltFun for $af {
+            impl super::AltFun for $af {
                 const NUM: u32 = $i;
             }
          )*
     }
 }
 
-/// Alternate Function Trait
-/// Implemented only for corresponding structs.
+#[doc(hidden)]
+/// Helper trait to contain a numeric value used to identify alternate functions
 ///
-/// Note: MUST not be implemented by user.
+/// Note: this trait SHALL NOT be implemented, and should be considered Sealed
 pub trait AltFun {
     /// Number of the alternate function
     const NUM: u32;
 }
 
-impl_af!([AF0, 0; AF1, 1; AF2, 2; AF3, 3; AF4, 4; AF5, 5; AF6, 6; AF7, 7; AF8, 8; AF9, 9; AF10, 10; AF11, 11; AF12, 12; AF13, 13; AF14, 14; AF15, 15;]);
+#[allow(non_snake_case)]
+/// Module containing the (auto-generated) alternate functions for the GPIOs
+pub mod AF {
+    impl_af!([AF0, 0; AF1, 1; AF2, 2; AF3, 3; AF4, 4; AF5, 5; AF6, 6; AF7, 7; AF8, 8; AF9, 9; AF10, 10; AF11, 11; AF12, 12; AF13, 13; AF14, 14; AF15, 15;]);
+}
 
 impl_parts!(
     GPIOA, gpioa;
