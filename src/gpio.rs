@@ -9,7 +9,7 @@
 use core::marker::PhantomData;
 use core::ops::Deref;
 
-use hal::digital::{toggleable, OutputPin, StatefulOutputPin};
+use hal::digital::{toggleable, InputPin, OutputPin, StatefulOutputPin};
 use rcc;
 
 use stm32l0x1;
@@ -310,6 +310,16 @@ macro_rules! impl_pin {
             fn is_set_low(&self) -> bool {
                 // NOTE(unsafe) atomic read with no side effects
                 unsafe { (*$GPIOX::ptr()).odr.read().bits() & (1 << $i) == 0 }
+            }
+        }
+
+        impl<PUMODE> InputPin for $PXi<Input<PUMODE>> {
+            fn is_high(&self) -> bool {
+                !self.is_low()
+            }
+
+            fn is_low(&self) -> bool {
+                unsafe { (*$GPIOX::ptr()).idr.read().bits() & (1 << $i) == 0 }
             }
         }
     };

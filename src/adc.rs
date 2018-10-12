@@ -175,7 +175,11 @@ pub enum Events {
 // allow dead code because we want to hold the references until I get context stuff implemented
 #[allow(dead_code)]
 /// Represents the ADC peripheral
-pub struct Adc<RES, MODE> where RES: Resolution, MODE: RunMode {
+pub struct Adc<RES, MODE>
+where
+    RES: Resolution,
+    MODE: RunMode,
+{
     /// The raw ADC peripheral
     adc: ADC,
     /// ADC calibration factor
@@ -188,7 +192,11 @@ pub struct Adc<RES, MODE> where RES: Resolution, MODE: RunMode {
     _mode: PhantomData<MODE>,
 }
 
-impl<RES, MODE> Adc<RES, MODE> where RES: Resolution, MODE: RunMode {
+impl<RES, MODE> Adc<RES, MODE>
+where
+    RES: Resolution,
+    MODE: RunMode,
+{
     fn adc(&mut self) -> &mut ADC {
         &mut self.adc
     }
@@ -198,7 +206,7 @@ impl<WORD, RES, PIN> OneShot<Adc<RES, Single>, RES::Word, PIN> for Adc<RES, Sing
 where
     WORD: From<u16>,
     RES: Resolution<Word = WORD>,
-    PIN: Channel<ID=u8>,
+    PIN: Channel<ID = u8>,
 {
     type Error = Error;
 
