@@ -194,9 +194,9 @@ impl ScanDir for ScanDown {
 
 macro_rules! adc_pin {
     ($PXi:ident, $i:expr) => {
-        impl Channel for $PXi<Analog> {
+        impl<RES, MODE> Channel<Adc<RES, MODE>> for $PXi<Analog> where MODE: RunMode, RES: Resolution {
             type ID = u32;
-            const CHANNEL: u32 = $i;
+            fn channel() -> u32 { $i }
         }
     };
 }
@@ -259,12 +259,12 @@ impl<WORD, RES, PIN> OneShot<Adc<RES, Single>, RES::Word, PIN> for Adc<RES, Sing
 where
     WORD: From<u16>,
     RES: Resolution<Word = WORD>,
-    PIN: Channel<ID = u8>,
+    PIN: Channel<Adc<RES, Single>, ID = u8>,
 {
     type Error = Error;
 
     fn read(&mut self, _pin: &mut PIN) -> nb::Result<RES::Word, Error> {
-        let chan = 1 << PIN::CHANNEL;
+        let chan = 1 << PIN::channel();
 
         // if a conversion is ongoing
         if self.adc().cr.read().adstart().bit_is_set() {
@@ -290,7 +290,7 @@ where
                 // select the channel
                 self.adc()
                     .chselr
-                    .write(|w| unsafe { w.bits(1 << PIN::CHANNEL) });
+                    .write(|w| unsafe { w.bits(1 << PIN::channel()) });
                 self.start();
                 Err(nb::Error::WouldBlock)
             }
