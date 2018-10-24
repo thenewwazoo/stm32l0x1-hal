@@ -149,7 +149,7 @@ impl Vos for VCoreRange1 {
 
 impl FreqLimit for VCoreRange1 {
     fn max_freq() -> Hertz {
-        Hertz(32_000_00)
+        Hertz(32_000_000)
     }
 }
 
@@ -163,7 +163,7 @@ impl Vos for VCoreRange2 {
 
 impl FreqLimit for VCoreRange2 {
     fn max_freq() -> Hertz {
-        Hertz(16_000_00)
+        Hertz(16_000_000)
     }
 }
 
@@ -177,7 +177,7 @@ impl Vos for VCoreRange3 {
 
 impl FreqLimit for VCoreRange3 {
     fn max_freq() -> Hertz {
-        Hertz(4_200_00)
+        Hertz(4_200_000)
     }
 }
 
