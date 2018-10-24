@@ -194,9 +194,15 @@ impl ScanDir for ScanDown {
 
 macro_rules! adc_pin {
     ($PXi:ident, $i:expr) => {
-        impl<RES, MODE> Channel<Adc<RES, MODE>> for $PXi<Analog> where MODE: RunMode, RES: Resolution {
+        impl<RES, MODE> Channel<Adc<RES, MODE>> for $PXi<Analog>
+        where
+            MODE: RunMode,
+            RES: Resolution,
+        {
             type ID = u8;
-            fn channel() -> u8 { $i }
+            fn channel() -> u8 {
+                $i
+            }
         }
     };
 }

@@ -19,7 +19,7 @@ mod private {
 }
 
 /// Types of clocks that have a frequency
-pub trait ClkSrc : private::Sealed {
+pub trait ClkSrc: private::Sealed {
     /// Returns the frequency of the clock, if the clock exists, else `None`.
     fn freq(&self) -> Option<Hertz>;
 }
