@@ -134,6 +134,11 @@ pub struct Tx<USART> {
     _usart: PhantomData<USART>,
 }
 
+/// Serial RS232 RTS / RS485 DE channel
+pub struct RtsDe<USART> {
+    _usart: PhantomData<USART>,
+}
+
 macro_rules! hal {
     ($(
         $USARTX:ident: (
@@ -347,6 +352,14 @@ macro_rules! hal {
                         }
                     }
 
+                    /// Consume `tx` and `rx`, and return the underlying `Serial`.
+                    ///
+                    /// This is safe because `Serial` doesn't contain any state, and we can `steal`
+                    /// the USART Peripheral member back because we consumed it in the `split`.
+                    pub fn recover(pins: PINS) -> Serial<$USARTX, PINS> {
+                        Serial { usart: unsafe { stm32l0x1::Peripherals::steal().$USARTX }, pins }
+                    }
+
                     /// Split the `Serial` object into component Tx and Rx parts
                     ///
                     /// Note that once this is done, you cannot get the `Serial` object back! It is
@@ -391,9 +404,9 @@ macro_rules! hal {
                 }
 
                 impl Write<u8> for Tx<$USARTX> {
-                    type Error = !;
+                    type Error = ();
 
-                    fn flush(&mut self) -> nb::Result<(), !> {
+                    fn flush(&mut self) -> nb::Result<(), ()> {
                         // NOTE(unsafe) atomic read with no side effects
                         let isr = unsafe { (*$USARTX::ptr()).isr.read() };
 
@@ -404,7 +417,7 @@ macro_rules! hal {
                         }
                     }
 
-                    fn write(&mut self, byte: u8) -> nb::Result<(), !> {
+                    fn write(&mut self, byte: u8) -> nb::Result<(), ()> {
                         // NOTE(unsafe) atomic read with no side effects
                         let isr = unsafe { (*$USARTX::ptr()).isr.read() };
 
@@ -423,7 +436,7 @@ macro_rules! hal {
 
                 impl Tx<$USARTX> {
                     /// Write the contents of the slice out to the USART
-                    pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), !> {
+                    pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), ()> {
                         for b in bytes.iter() {
                             block!(self.write(*b)).unwrap();
                         }
@@ -694,9 +707,9 @@ pub mod lpuart1 {
     }
 
     impl Write<u8> for Tx<LPUART1> {
-        type Error = !;
+        type Error = ();
 
-        fn flush(&mut self) -> nb::Result<(), !> {
+        fn flush(&mut self) -> nb::Result<(), ()> {
             // NOTE(unsafe) atomic read with no side effects
             let isr = unsafe { (*LPUART1::ptr()).isr.read() };
 
@@ -707,7 +720,7 @@ pub mod lpuart1 {
             }
         }
 
-        fn write(&mut self, byte: u8) -> nb::Result<(), !> {
+        fn write(&mut self, byte: u8) -> nb::Result<(), ()> {
             // NOTE(unsafe) atomic read with no side effects
             let isr = unsafe { (*LPUART1::ptr()).isr.read() };
 

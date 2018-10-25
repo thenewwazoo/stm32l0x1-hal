@@ -8,7 +8,6 @@
 
 #![no_std]
 #![deny(missing_docs)]
-#![feature(never_type)]
 
 extern crate cortex_m;
 extern crate embedded_hal as hal;
