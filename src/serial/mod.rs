@@ -735,6 +735,16 @@ pub mod lpuart1 {
         }
     }
 
+    impl Tx<LPUART1> {
+        /// Write the contents of the slice out to the USART
+        pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), ()> {
+            for b in bytes.iter() {
+                block!(self.write(*b)).unwrap();
+            }
+            Ok(())
+        }
+    }
+
     #[derive(Debug)]
     /// The event which activates the WUF (wakeup from Stop mode flag)
     pub enum SerialWakeSource {
