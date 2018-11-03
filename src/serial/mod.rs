@@ -49,6 +49,7 @@ use core::ptr;
 use hal::serial::{Read, Write};
 use nb;
 use stm32l0x1::{LPUART1, USART2};
+use void::Void;
 
 use rcc::clocking::USARTClkSource;
 use rcc::ClockContext;
@@ -404,9 +405,9 @@ macro_rules! hal {
                 }
 
                 impl Write<u8> for Tx<$USARTX> {
-                    type Error = ();
+                    type Error = Void;
 
-                    fn flush(&mut self) -> nb::Result<(), ()> {
+                    fn flush(&mut self) -> nb::Result<(), Void> {
                         // NOTE(unsafe) atomic read with no side effects
                         let isr = unsafe { (*$USARTX::ptr()).isr.read() };
 
@@ -417,7 +418,7 @@ macro_rules! hal {
                         }
                     }
 
-                    fn write(&mut self, byte: u8) -> nb::Result<(), ()> {
+                    fn write(&mut self, byte: u8) -> nb::Result<(), Void> {
                         // NOTE(unsafe) atomic read with no side effects
                         let isr = unsafe { (*$USARTX::ptr()).isr.read() };
 
@@ -436,7 +437,7 @@ macro_rules! hal {
 
                 impl Tx<$USARTX> {
                     /// Write the contents of the slice out to the USART
-                    pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), ()> {
+                    pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), Void> {
                         for b in bytes.iter() {
                             block!(self.write(*b)).unwrap();
                         }
@@ -707,9 +708,9 @@ pub mod lpuart1 {
     }
 
     impl Write<u8> for Tx<LPUART1> {
-        type Error = ();
+        type Error = Void;
 
-        fn flush(&mut self) -> nb::Result<(), ()> {
+        fn flush(&mut self) -> nb::Result<(), Void> {
             // NOTE(unsafe) atomic read with no side effects
             let isr = unsafe { (*LPUART1::ptr()).isr.read() };
 
@@ -720,7 +721,7 @@ pub mod lpuart1 {
             }
         }
 
-        fn write(&mut self, byte: u8) -> nb::Result<(), ()> {
+        fn write(&mut self, byte: u8) -> nb::Result<(), Void> {
             // NOTE(unsafe) atomic read with no side effects
             let isr = unsafe { (*LPUART1::ptr()).isr.read() };
 
@@ -737,7 +738,7 @@ pub mod lpuart1 {
 
     impl Tx<LPUART1> {
         /// Write the contents of the slice out to the USART
-        pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), ()> {
+        pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), Void> {
             for b in bytes.iter() {
                 block!(self.write(*b)).unwrap();
             }

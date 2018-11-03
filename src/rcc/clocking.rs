@@ -318,3 +318,15 @@ pub enum USARTClkSource {
     /// Low-speed external osc
     LSE,
 }
+
+/// Available clock sources that can drive the low-power timer
+pub enum LPTimerClkSource {
+    /// Low-speed external 32kHz oscillator
+    Lse,
+    /// High-speed internal 16 MHz RC
+    Hsi16,
+    /// SYSCLK clock
+    Sysclk,
+    /// PCLK
+    Pclk,
+}
