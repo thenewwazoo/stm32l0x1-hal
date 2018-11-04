@@ -32,11 +32,3 @@ STM32L031x4 = []
 STM32L031x6 = []
 default = ["rt"]
 rt = ["stm32l0x1/rt"]
-
-[patch]
-
-[patch.crates-io]
-
-[patch.crates-io.embedded-hal]
-branch = "adc"
-git = "https://github.com/thenewwazoo/embedded-hal.git"
