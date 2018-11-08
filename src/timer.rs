@@ -13,13 +13,15 @@ use stm32l0x1::{TIM2, TIM21};
 use stm32l0x1::TIM22;
 
 /// 16-bit timer
-pub struct Timer<'c, TIM> {
+pub struct Timer<TIM> {
     /// The underlying timer peripheral
     timer: TIM,
     /// The timer's period
     timeout: Hertz,
-    /// A handle to the clock configuration
-    clk_ctx: &'c ClockContext,
+    /// The clock frequency
+    clk_f: Hertz,
+    /// The multiplier to the clock that feeds the timer
+    timx_prsc: u32,
 }
 
 /// Timer events that can be subscribed to
@@ -31,9 +33,9 @@ pub enum Event {
 macro_rules! impl_timer {
     ($($TIMX:ident: ($timX:ident, $APB:ident, $apb:ident, $enr_bit:ident, $rstr_bit:ident),)+) => {
         $(
-            impl<'c> Periodic for Timer<'c, $TIMX> {}
+            impl Periodic for Timer<$TIMX> {}
 
-            impl<'c> Cancel for Timer<'c, $TIMX> {
+            impl Cancel for Timer<$TIMX> {
                 type Error = Void;
 
                 fn cancel(&mut self) -> Result<(), Self::Error> {
@@ -43,7 +45,7 @@ macro_rules! impl_timer {
                 }
             }
 
-            impl<'c> CountDown for Timer<'c, $TIMX> {
+            impl CountDown for Timer<$TIMX> {
                 type Time = Hertz;
 
                 fn start<T>(&mut self, timeout: T)
@@ -57,11 +59,8 @@ macro_rules! impl_timer {
 
                     self.timeout = timeout.into();
 
-                    // timer clock is multiplied by 2 is APBx presc is != 1
-                    let timx_prsc = if self.clk_ctx.hclk_fclk() == self.clk_ctx.$apb() { 1 } else { 2 };
-
                     // timer clock ticks per timeout cycle
-                    let ticks = self.clk_ctx.$apb().0 * timx_prsc / self.timeout.0;
+                    let ticks = self.clk_f.0 * self.timx_prsc / self.timeout.0;
 
                     // prescale the timer clock to account for multiples of the 16-bit counter
                     // size
@@ -94,15 +93,18 @@ macro_rules! impl_timer {
                 }
             }
 
-            impl<'c> Timer<'c, $TIMX> {
+            impl Timer<$TIMX> {
                 /// Instantiate a new timer
-                pub fn $timX<T: Into<Hertz>>(timer: $TIMX, clk_ctx: &'c ClockContext, timeout: T, apb: &mut $APB) -> Self {
+                pub fn $timX<T: Into<Hertz>>(timer: $TIMX, clk_ctx: &ClockContext, timeout: T, apb: &mut $APB) -> Self {
                     // enable and reset peripheral to a clean slate state
                     apb.enr().modify(|_, w| w.$enr_bit().set_bit());
                     apb.rstr().modify(|_, w| w.$rstr_bit().set_bit());
                     apb.rstr().modify(|_, w| w.$rstr_bit().clear_bit());
 
-                    Timer { timer, timeout: timeout.into(), clk_ctx }
+                    // timer clock is multiplied by 2 is APBx presc is != 1
+                    let timx_prsc = if clk_ctx.hclk_fclk() == clk_ctx.$apb() { 1 } else { 2 };
+
+                    Timer { timer, timeout: timeout.into(), clk_f: clk_ctx.$apb(), timx_prsc }
                 }
 
                 /// Starts listening for an `event`

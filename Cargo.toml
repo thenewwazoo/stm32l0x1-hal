@@ -6,7 +6,7 @@ keywords = ["arm", "cortex-m", "stm32l0x1", "hal"]
 license = "0BSD"
 name = "stm32l0x1-hal"
 repository = "https://github.com/thenewwazoo/stm32l0x1-hal/"
-version = "0.7.0"
+version = "0.7.1"
 
 [dependencies]
 cortex-m = "0.5"
