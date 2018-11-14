@@ -68,6 +68,40 @@ impl Constrain<Rcc> for RCC {
     }
 }
 
+/// Returns an already-frozen default `Rcc` config
+///
+/// This config matches the default start-up configuration of the MCU. This is an easy way to elide
+/// the code space necessary to support more flexible configuration capability.
+pub fn as_default(_rcc: RCC) -> Rcc {
+    Rcc {
+        ahb: AHB(()),
+        apb1: APB1(()),
+        apb2: APB2(()),
+        iop: IOP(()),
+        ccipr: CCIPR(()),
+        cr: CR(()),
+        csr: CSR(()),
+        icscr: ICSCR(()),
+        cfgr: ClockConfig::Frozen(ClockContext {
+            sysclk: Hertz(2_097_000),
+            /// HCLK/FCLK
+            hclk: Hertz(2_097_000),
+            /// PCLK1 to APB1 peripherals
+            pclk1: Hertz(2_097_000),
+            /// PCLK2 to APB2 peripherals
+            pclk2: Hertz(2_097_000),
+            /// Low-speed internal RC clock speed
+            lsiclk: None,
+            /// Medium-speed internal RC clock speed
+            msiclk: Some(Hertz(2_097_000)),
+            /// High-speed internal 16 MHz clock speed (optionally /4)
+            hsi16clk: None,
+            /// Low-speed external 32kHz clock speed
+            lseclk: None,
+        }),
+    }
+}
+
 /// Struct representing the RCC peripheral
 pub struct Rcc {
     /// AMBA High-performance Bus (AHB) registers.

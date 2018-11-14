@@ -16,6 +16,7 @@ extern crate embedded_hal as hal;
 extern crate nb;
 pub extern crate stm32l0x1;
 extern crate void;
+extern crate flash_embedded_hal as fhal;
 
 pub mod adc;
 pub mod common;
