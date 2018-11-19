@@ -6,10 +6,10 @@
 use core::ptr;
 
 use common::Constrain;
+use fhal::flash::{Locking, Read, WriteErase};
 use power::{self, Power};
 use stm32l0x1::{flash, FLASH};
 use time::Hertz;
-use fhal::flash::{Read, WriteErase, Locking};
 
 mod private {
     /// The Sealed trait prevents other crates from implementing helper traits defined here
@@ -93,13 +93,13 @@ impl FlashError {
     /// Helper method to clear error bits raised
     pub fn clear(&self, sr: &mut SR) {
         match self {
-            FlashError::WriteProtect => sr.inner().modify(|_,w| w.wrperr().set_bit()),
-            FlashError::Alignment => sr.inner().modify(|_,w| w.pgaerr().set_bit()),
-            FlashError::Size => sr.inner().modify(|_,w| w.sizerr().set_bit()),
-            FlashError::ReadProtection => sr.inner().modify(|_,w| w.rderr().set_bit()),
-            FlashError::NotZero => sr.inner().modify(|_,w| w.notzeroerr().set_bit()),
-            FlashError::FetchAbort => sr.inner().modify(|_,w| w.fwwerr().set_bit()),
-            _ => {},
+            FlashError::WriteProtect => sr.inner().modify(|_, w| w.wrperr().set_bit()),
+            FlashError::Alignment => sr.inner().modify(|_, w| w.pgaerr().set_bit()),
+            FlashError::Size => sr.inner().modify(|_, w| w.sizerr().set_bit()),
+            FlashError::ReadProtection => sr.inner().modify(|_, w| w.rderr().set_bit()),
+            FlashError::NotZero => sr.inner().modify(|_, w| w.notzeroerr().set_bit()),
+            FlashError::FetchAbort => sr.inner().modify(|_, w| w.fwwerr().set_bit()),
+            FlashError::Locked | FlashError::Unknown => {}
         };
     }
 }
@@ -131,9 +131,10 @@ impl Flash {
 
     /// Retrieves the clock cycle latency based on current register settings
     pub fn get_latency(&mut self) -> FlashLatency {
-        match self.acr.acr().read().latency().bit() {
-            true => FlashLatency::_1_Clk,
-            false => FlashLatency::_0_Clk,
+        if self.acr.acr().read().latency().bit() {
+            FlashLatency::_1_Clk
+        } else {
+            FlashLatency::_0_Clk
         }
     }
 
@@ -258,7 +259,7 @@ impl PECR {
 
     /// Lock the PECR
     pub fn lock(&mut self) {
-        Self::inner().modify(|_,w| w.pelock().set_bit());
+        Self::inner().modify(|_, w| w.pelock().set_bit());
     }
 
     /// Enable flash to be erased (requires that PECR is unlocked)
@@ -266,7 +267,7 @@ impl PECR {
         if self.is_pecr_locked() {
             Err(FlashError::Locked)
         } else {
-            Self::inner().modify(|_,w| w.erase().set_bit().prog().set_bit());
+            Self::inner().modify(|_, w| w.erase().set_bit().prog().set_bit());
             Ok(())
         }
     }
@@ -276,11 +277,10 @@ impl PECR {
         if self.is_pecr_locked() {
             Err(FlashError::Locked)
         } else {
-            Self::inner().modify(|_,w| w.erase().clear_bit().prog().clear_bit());
+            Self::inner().modify(|_, w| w.erase().clear_bit().prog().clear_bit());
             Ok(())
         }
     }
-
 }
 
 /// PECR unlock key register
@@ -339,10 +339,12 @@ impl Locking for Flash {
             }
         }
     }
-
 }
 
-impl WriteErase for Flash where Flash: Locking {
+impl WriteErase for Flash
+where
+    Flash: Locking,
+{
     type Error = FlashError;
     type Status = FlashStatus;
 
@@ -374,7 +376,6 @@ impl WriteErase for Flash where Flash: Locking {
     }
 
     fn erase_page(&mut self, address: usize) -> Result<(), FlashError> {
-
         self.pecr.enable_erase()?;
         unsafe {
             ptr::write_volatile(address as *mut u32, 0);
@@ -382,10 +383,7 @@ impl WriteErase for Flash where Flash: Locking {
 
         while self.sr.is_busy() {}
 
-        let result = match self.status() {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
-        };
+        let result = self.status().map(|_| ());
 
         self.pecr.disable_erase()?;
         result
@@ -395,9 +393,6 @@ impl WriteErase for Flash where Flash: Locking {
         self.erase_page(address)?;
         unsafe { self.program_word_immediate(address, value) };
         while self.sr.is_busy() {}
-        match self.status() {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
-        }
+        self.status().map(|_| ())
     }
 }
