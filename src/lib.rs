@@ -14,9 +14,11 @@ extern crate cortex_m;
 extern crate embedded_hal as hal;
 #[macro_use]
 extern crate nb;
-pub extern crate stm32l0x1;
-extern crate void;
 extern crate flash_embedded_hal as fhal;
+
+extern crate stm32l0;
+
+pub use stm32l0::stm32l0x1;
 
 pub mod adc;
 pub mod common;

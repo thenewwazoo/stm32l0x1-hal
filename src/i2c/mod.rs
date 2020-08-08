@@ -46,7 +46,6 @@ use rcc::{APB1, CCIPR};
 mod private {
     /// The Sealed trait prevents other crates from implementing helper traits used by this one
     pub trait Sealed {}
-
 }
 
 /// Available clock sources for I2C modules
@@ -119,7 +118,7 @@ macro_rules! busy_wait {
 }
 
 macro_rules! hal {
-    ($($I2CX:ident: ($i2cX:ident, $i2cXen:ident, $i2cXrst:ident, $i2cXsel0:ident, $i2cXsel1:ident),)+) => {
+    ($($I2CX:ident: ($i2cX:ident, $i2cXen:ident, $i2cXrst:ident, $i2cXsel:ident),)+) => {
         $(
             impl<SCL, SDA> I2c<$I2CX, (SCL, SDA)> {
                 /// Create a new I2C peripheral in master mode
@@ -160,13 +159,14 @@ macro_rules! hal {
                     };
                     */
 
-                    let (sel1_bit, sel0_bit) = match clk_src {
-                        I2cClkSrc::PCLK1 => (false, false),
-                        I2cClkSrc::Sysclk => (false, true),
-                        I2cClkSrc::HSI16 => (true, false),
+                    let sel_bits = match clk_src {
+                    //let (sel1_bit, sel0_bit) = match clk_src {
+                        I2cClkSrc::PCLK1 => 0b00,
+                        I2cClkSrc::Sysclk => 0b01,
+                        I2cClkSrc::HSI16 => 0b10,
                     };
 
-                    ccipr.inner().modify(|_,w| w.$i2cXsel0().bit(sel0_bit).$i2cXsel1().bit(sel1_bit));
+                    ccipr.inner().modify(|_,w| unsafe { w.$i2cXsel().bits(sel_bits) });
 
                     /*
                     let freq = freq.into().0;
@@ -265,13 +265,12 @@ macro_rules! hal {
             impl<PINS> Write for I2c<$I2CX, PINS> {
                 type Error = Error;
 
-                fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
+                fn try_write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
                     // TODO support transfers of more than 255 bytes
                     assert!(bytes.len() < 256 && bytes.len() > 0);
 
                     // START and prepare to send `bytes`
-                    self.i2c.cr2.write(|w| unsafe {
-                        w
+                    self.i2c.cr2.write(|w| w
                             .sadd()
                             .bits(addr as u16)
                             .rd_wrn()
@@ -282,7 +281,7 @@ macro_rules! hal {
                             .set_bit()
                             .autoend()
                             .set_bit()
-                    });
+                    );
 
                     for byte in bytes {
                         // Wait until we are allowed to send data (START has been ACKed or last byte
@@ -290,7 +289,7 @@ macro_rules! hal {
                         busy_wait!(self.i2c, txis);
 
                         // put byte on the wire
-                        unsafe { self.i2c.txdr.write(|w| w.txdata().bits(*byte)) };
+                        self.i2c.txdr.write(|w| w.txdata().bits(*byte));
                     }
 
                     // Wait until the last transmission is finished ???
@@ -305,7 +304,7 @@ macro_rules! hal {
             impl<PINS> WriteRead for I2c<$I2CX, PINS> {
                 type Error = Error;
 
-                fn write_read(
+                fn try_write_read(
                     &mut self,
                     addr: u8,
                     bytes: &[u8],
@@ -319,8 +318,7 @@ macro_rules! hal {
                     // master is communicating)?
 
                     // START and prepare to send `bytes`
-                    self.i2c.cr2.write(|w| unsafe {
-                        w
+                    self.i2c.cr2.write(|w| w
                             .sadd()
                             .bits(addr as u16)
                             .rd_wrn()
@@ -331,7 +329,7 @@ macro_rules! hal {
                             .set_bit()
                             .autoend()
                             .clear_bit()
-                    });
+                    );
 
                     for byte in bytes {
                         // Wait until we are allowed to send data (START has been ACKed or last byte
@@ -339,15 +337,14 @@ macro_rules! hal {
                         busy_wait!(self.i2c, txis);
 
                         // put byte on the wire
-                        unsafe { self.i2c.txdr.write(|w| w.txdata().bits(*byte)) };
+                        self.i2c.txdr.write(|w| w.txdata().bits(*byte));
                     }
 
                     // Wait until the last transmission is finished
                     busy_wait!(self.i2c, tc);
 
                     // reSTART and prepare to receive bytes into `buffer`
-                    self.i2c.cr2.write(|w| unsafe {
-                        w
+                    self.i2c.cr2.write(|w| w
                             .sadd()
                             .bits(addr as u16)
                             .rd_wrn()
@@ -358,7 +355,7 @@ macro_rules! hal {
                             .set_bit()
                             .autoend()
                             .set_bit()
-                    });
+                    );
 
                     for byte in buffer {
                         // Wait until we have received something
@@ -377,5 +374,5 @@ macro_rules! hal {
 }
 
 hal! {
-    I2C1: (i2c1, i2c1en, i2c1rst, i2c1sel0, i2c1sel1),
+    I2C1: (i2c1, i2c1en, i2c1rst, i2c1sel),
 }

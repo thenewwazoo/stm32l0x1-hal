@@ -26,6 +26,7 @@
 #![allow(unknown_lints)]
 #![allow(clippy)]
 
+use core::convert::Infallible;
 use core::marker::PhantomData;
 
 use hal::digital::{InputPin, OutputPin, StatefulOutputPin};
@@ -327,37 +328,41 @@ macro_rules! impl_pin {
         }
 
         impl<OMODE, PUMODE> OutputPin for $PXi<Output<OMODE, PUMODE>> {
-            fn set_high(&mut self) {
+            type Error = Infallible;
+
+            fn try_set_high(&mut self) -> Result<(), Self::Error> {
                 // NOTE(unsafe) atomic write to a stateless register
-                unsafe { (*$GPIOX::ptr()).bsrr.write(|w| w.bits(1 << $i)) }
+                Ok(unsafe { (*$GPIOX::ptr()).bsrr.write(|w| w.bits(1 << $i)) })
             }
 
-            fn set_low(&mut self) {
+            fn try_set_low(&mut self) -> Result<(), Self::Error> {
                 // NOTE(unsafe) atomic write to a stateless register
-                unsafe { (*$GPIOX::ptr()).bsrr.write(|w| w.bits(1 << (16 + $i))) }
+                Ok(unsafe { (*$GPIOX::ptr()).bsrr.write(|w| w.bits(1 << (16 + $i))) })
             }
         }
 
         impl<OMODE, PUMODE> StatefulOutputPin for $PXi<Output<OMODE, PUMODE>> {
             /// Returns whether high bit is set.
-            fn is_set_high(&self) -> bool {
-                !self.is_set_low()
+            fn try_is_set_high(&self) -> Result<bool, Self::Error> {
+                self.try_is_set_low().map(|r| !r)
             }
 
             /// Returns whether low bit is set.
-            fn is_set_low(&self) -> bool {
+            fn try_is_set_low(&self) -> Result<bool, Self::Error> {
                 // NOTE(unsafe) atomic read with no side effects
-                unsafe { (*$GPIOX::ptr()).odr.read().bits() & (1 << $i) == 0 }
+                Ok(unsafe { (*$GPIOX::ptr()).odr.read().bits() & (1 << $i) == 0 })
             }
         }
 
         impl<PUMODE> InputPin for $PXi<Input<PUMODE>> {
-            fn is_high(&self) -> bool {
-                !self.is_low()
+            type Error = Infallible;
+
+            fn try_is_high(&self) -> Result<bool, Self::Error> {
+                self.try_is_low().map(|r| !r)
             }
 
-            fn is_low(&self) -> bool {
-                unsafe { (*$GPIOX::ptr()).idr.read().bits() & (1 << $i) == 0 }
+            fn try_is_low(&self) -> Result<bool, Self::Error> {
+                Ok(unsafe { (*$GPIOX::ptr()).idr.read().bits() & (1 << $i) == 0 })
             }
         }
     };
@@ -412,20 +417,20 @@ pub mod AF {
 }
 
 impl_parts!(
-    GPIOA, gpioa;
-    GPIOB, gpiob;
-    GPIOC, gpiob; // not a typo
-    );
+GPIOA, gpioa;
+GPIOB, gpiob;
+GPIOC, gpiob; // not a typo
+);
 
 impl_gpio!(A, GPIOA, iopaen, gpioarst,
-           AFRL: [PA0, 0; PA1, 1; PA2, 2; PA3, 3; PA4, 4; PA5, 5; PA6, 6; PA7, 7;],
-           AFRH: [PA8, 8; PA9, 9; PA10, 10; PA11, 11; PA12, 12; PA13, 13; PA14, 14; PA15, 15; ]
-          );
+ AFRL: [PA0, 0; PA1, 1; PA2, 2; PA3, 3; PA4, 4; PA5, 5; PA6, 6; PA7, 7;],
+ AFRH: [PA8, 8; PA9, 9; PA10, 10; PA11, 11; PA12, 12; PA13, 13; PA14, 14; PA15, 15; ]
+);
 impl_gpio!(B, GPIOB, iopben, gpiobrst,
-           AFRL: [PB0, 0; PB1, 1; PB2, 2; PB3, 3; PB4, 4; PB5, 5; PB6, 6; PB7, 7;],
-           AFRH: [PB8, 8; PB9, 9; PB10, 10; PB11, 11; PB12, 12; PB13, 13; PB14, 14; PB15, 15; ]
-          );
+ AFRL: [PB0, 0; PB1, 1; PB2, 2; PB3, 3; PB4, 4; PB5, 5; PB6, 6; PB7, 7;],
+ AFRH: [PB8, 8; PB9, 9; PB10, 10; PB11, 11; PB12, 12; PB13, 13; PB14, 14; PB15, 15; ]
+);
 impl_gpio!(C, GPIOC, iopcen, gpiocrst,
-           AFRL: [PC0, 0; PC1, 1; PC2, 2; PC3, 3; PC4, 4; PC5, 5; PC6, 6; PC7, 7;],
-           AFRH: [PC8, 8; PC9, 9; PC10, 10; PC11, 11; PC12, 12; PC13, 13; PC14, 14; PC15, 15; ]
-          );
+ AFRL: [PC0, 0; PC1, 1; PC2, 2; PC3, 3; PC4, 4; PC5, 5; PC6, 6; PC7, 7;],
+ AFRH: [PC8, 8; PC9, 9; PC10, 10; PC11, 11; PC12, 12; PC13, 13; PC14, 14; PC15, 15; ]
+);

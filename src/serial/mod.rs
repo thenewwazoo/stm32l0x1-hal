@@ -43,13 +43,14 @@
 //! ```
 
 use core::cmp::{max, min};
+use core::convert::Infallible;
 use core::marker::PhantomData;
 use core::ptr;
 
 use hal::serial::{Read, Write};
 use nb;
-use stm32l0x1::{LPUART1, USART2};
-use void::Void;
+use stm32l0::stm32l0x1;
+use stm32l0::stm32l0x1::{LPUART1, USART2};
 
 use rcc::clocking::USARTClkSource;
 use rcc::ClockContext;
@@ -147,8 +148,7 @@ macro_rules! hal {
             $APB:ident,
             $pclk: ident,
             $usartXen:ident,
-            $usartXsel0:ident,
-            $usartXsel1:ident),
+            $usartXsel:ident),
     )+) => {
         $(
 
@@ -197,27 +197,9 @@ macro_rules! hal {
                                ) as u8,
                                1
                            );
+                    let clks_per_half_bit = clks_per_half_bit & 0b11111;
 
-                    let (de_4, de_3, de_2, de_1, de_0) = (
-                        (clks_per_half_bit & 0b10000) > 0,
-                        (clks_per_half_bit & 0b01000) > 0,
-                        (clks_per_half_bit & 0b00100) > 0,
-                        (clks_per_half_bit & 0b00010) > 0,
-                        (clks_per_half_bit & 0b00001) > 0,
-                        );
-
-                    usart.cr1.modify(|_, w| w
-                                     .deat4().bit(de_4)
-                                     .deat3().bit(de_3)
-                                     .deat2().bit(de_2)
-                                     .deat1().bit(de_1)
-                                     .deat0().bit(de_0)
-                                     .dedt4().bit(de_4)
-                                     .dedt3().bit(de_3)
-                                     .dedt2().bit(de_2)
-                                     .dedt1().bit(de_1)
-                                     .dedt0().bit(de_0)
-                                    );
+                    usart.cr1.modify(|_, w| w.deat().bits(clks_per_half_bit).dedt().bits(clks_per_half_bit));
 
                     usart.cr3.modify(|_, w| w.dem().set_bit());
 
@@ -258,11 +240,11 @@ macro_rules! hal {
                         apb.enr().modify(|_, w| w.$usartXen().set_bit());
                         while apb.enr().read().$usartXen().bit_is_clear() {}
 
-                        let (clk_f, sel_bit1, sel_bit0) = match clk_src {
-                            USARTClkSource::PCLK   => (clk_ctx.$pclk().0,   false, false),
-                            USARTClkSource::SYSCLK => (clk_ctx.sysclk().0,  false, true),
-                            USARTClkSource::HSI16  => (clk_ctx.hsi16().expect("HSI16 clk not enabled").0, true, false),
-                            USARTClkSource::LSE    => (clk_ctx.lse().expect("LSE not enabled").0,   true, true),
+                        let (clk_f, sel_bits) = match clk_src {
+                            USARTClkSource::PCLK   => (clk_ctx.$pclk().0,   0b00),
+                            USARTClkSource::SYSCLK => (clk_ctx.sysclk().0,  0b01),
+                            USARTClkSource::HSI16  => (clk_ctx.hsi16().expect("HSI16 clk not enabled").0, 0b10),
+                            USARTClkSource::LSE    => (clk_ctx.lse().expect("LSE not enabled").0,   0b11),
                         };
 
                         usart.cr1.modify(|_,w| w.ue().clear_bit()); // disable the uart
@@ -283,11 +265,11 @@ macro_rules! hal {
                         usart.brr.write(|w| unsafe { w.bits(brr) });
 
                         // 3. Program the number of stop bits in USART_CR2.
-                        usart.cr2.modify(|_,w| unsafe { w.stop().bits(0b00) });          // 1 stop bit
+                        usart.cr2.modify(|_,w| w.stop().bits(0b00));          // 1 stop bit
 
                         // No CR3 configuration required
 
-                        ccipr.inner().modify(|_,w| w.$usartXsel0().bit(sel_bit0).$usartXsel1().bit(sel_bit1));
+                        ccipr.inner().modify(|_,w| w.$usartXsel().bits(sel_bits));
 
                         // 4. Enable the USART by writing the UE bit in USART_CR1 register to 1.
                         usart.cr1.modify(|_,w| w.ue().set_bit()); // __HAL_UART_ENABLE in HAL_UART_Init
@@ -381,7 +363,7 @@ macro_rules! hal {
                 impl Read<u8> for Rx<$USARTX> {
                     type Error = Error;
 
-                    fn read(&mut self) -> nb::Result<u8, Error> {
+                    fn try_read(&mut self) -> nb::Result<u8, Self::Error> {
                         // NOTE(unsafe) atomic read with no side effects
                         let isr = unsafe { (*$USARTX::ptr()).isr.read() };
 
@@ -405,9 +387,9 @@ macro_rules! hal {
                 }
 
                 impl Write<u8> for Tx<$USARTX> {
-                    type Error = Void;
+                    type Error = Infallible;
 
-                    fn flush(&mut self) -> nb::Result<(), Void> {
+                    fn try_flush(&mut self) -> nb::Result<(), Infallible> {
                         // NOTE(unsafe) atomic read with no side effects
                         let isr = unsafe { (*$USARTX::ptr()).isr.read() };
 
@@ -418,7 +400,7 @@ macro_rules! hal {
                         }
                     }
 
-                    fn write(&mut self, byte: u8) -> nb::Result<(), Void> {
+                    fn try_write(&mut self, byte: u8) -> nb::Result<(), Infallible> {
                         // NOTE(unsafe) atomic read with no side effects
                         let isr = unsafe { (*$USARTX::ptr()).isr.read() };
 
@@ -437,9 +419,9 @@ macro_rules! hal {
 
                 impl Tx<$USARTX> {
                     /// Write the contents of the slice out to the USART
-                    pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), Void> {
+                    pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), Infallible> {
                         for b in bytes.iter() {
-                            block!(self.write(*b)).unwrap();
+                            block!(self.try_write(*b)).unwrap();
                         }
                         Ok(())
                     }
@@ -451,7 +433,7 @@ macro_rules! hal {
 }
 
 hal! {
-    USART2: (usart2, APB1, apb1, usart2en, usart2sel0, usart2sel1),
+    USART2: (usart2, APB1, apb1, usart2en, usart2sel),
 }
 
 /// LPUART1 module
@@ -491,36 +473,13 @@ pub mod lpuart1 {
 
         // Do not set a 0-clock period; do not set a period greater than 5 bits
         let clks_per_half_bit: u8 = min(max(clk_f / (baud_rate.0 * 8) / 2, 31) as u8, 1);
-
-        let (de_4, de_3, de_2, de_1, de_0) = (
-            (clks_per_half_bit & 0b10000) > 0,
-            (clks_per_half_bit & 0b01000) > 0,
-            (clks_per_half_bit & 0b00100) > 0,
-            (clks_per_half_bit & 0b00010) > 0,
-            (clks_per_half_bit & 0b00001) > 0,
-        );
+        let clks_per_half_bit = clks_per_half_bit & 0b1_1111;
 
         usart.cr1.modify(|_, w| {
-            w.deat4()
-                .bit(de_4)
-                .deat3()
-                .bit(de_3)
-                .deat2()
-                .bit(de_2)
-                .deat1()
-                .bit(de_1)
-                .deat0()
-                .bit(de_0)
-                .dedt4()
-                .bit(de_4)
-                .dedt3()
-                .bit(de_3)
-                .dedt2()
-                .bit(de_2)
-                .dedt1()
-                .bit(de_1)
-                .dedt0()
-                .bit(de_0)
+            w.deat()
+                .bits(clks_per_half_bit)
+                .dedt()
+                .bits(clks_per_half_bit)
         });
 
         usart.cr3.modify(|_, w| w.dem().set_bit());
@@ -564,15 +523,11 @@ pub mod lpuart1 {
             apb.enr().modify(|_, w| w.lpuart1en().set_bit());
             while apb.enr().read().lpuart1en().bit_is_clear() {}
 
-            let (clk_f, sel_bit1, sel_bit0) = match clk_src {
-                USARTClkSource::PCLK => (clk_ctx.apb1().0, false, false),
-                USARTClkSource::SYSCLK => (clk_ctx.sysclk().0, false, true),
-                USARTClkSource::HSI16 => (
-                    clk_ctx.hsi16().expect("HSI16 clk not enabled").0,
-                    true,
-                    false,
-                ),
-                USARTClkSource::LSE => (clk_ctx.lse().expect("LSE not enabled").0, true, true),
+            let (clk_f, sel_bits) = match clk_src {
+                USARTClkSource::PCLK => (clk_ctx.apb1().0, 0b00),
+                USARTClkSource::SYSCLK => (clk_ctx.sysclk().0, 0b01),
+                USARTClkSource::HSI16 => (clk_ctx.hsi16().expect("HSI16 clk not enabled").0, 0b10),
+                USARTClkSource::LSE => (clk_ctx.lse().expect("LSE not enabled").0, 0b11),
             };
 
             usart.cr1.modify(|_, w| w.ue().clear_bit()); // disable the uart
@@ -600,13 +555,11 @@ pub mod lpuart1 {
             usart.brr.write(|w| unsafe { w.bits(brr) });
 
             // 3. Program the number of stop bits in LPUART_CR2.
-            usart.cr2.modify(|_, w| unsafe { w.stop().bits(0b00) }); // 1 stop bit
+            usart.cr2.modify(|_, w| w.stop().bits(0b00)); // 1 stop bit
 
             // No CR3 configuration required
 
-            ccipr
-                .inner()
-                .modify(|_, w| w.lpuart1sel0().bit(sel_bit0).lpuart1sel1().bit(sel_bit1));
+            ccipr.inner().modify(|_, w| w.lpuart1sel().bits(sel_bits));
 
             // 4. Enable the LPUART by writing the UE bit in LPUART_CR1 register to 1.
             usart.cr1.modify(|_, w| w.ue().set_bit()); // __HAL_UART_ENABLE in HAL_UART_Init
@@ -684,7 +637,7 @@ pub mod lpuart1 {
     impl Read<u8> for Rx<LPUART1> {
         type Error = Error;
 
-        fn read(&mut self) -> nb::Result<u8, Error> {
+        fn try_read(&mut self) -> nb::Result<u8, Self::Error> {
             // NOTE(unsafe) atomic read with no side effects
             let isr = unsafe { (*LPUART1::ptr()).isr.read() };
 
@@ -708,9 +661,9 @@ pub mod lpuart1 {
     }
 
     impl Write<u8> for Tx<LPUART1> {
-        type Error = Void;
+        type Error = Infallible;
 
-        fn flush(&mut self) -> nb::Result<(), Void> {
+        fn try_flush(&mut self) -> nb::Result<(), Infallible> {
             // NOTE(unsafe) atomic read with no side effects
             let isr = unsafe { (*LPUART1::ptr()).isr.read() };
 
@@ -721,7 +674,7 @@ pub mod lpuart1 {
             }
         }
 
-        fn write(&mut self, byte: u8) -> nb::Result<(), Void> {
+        fn try_write(&mut self, byte: u8) -> nb::Result<(), Infallible> {
             // NOTE(unsafe) atomic read with no side effects
             let isr = unsafe { (*LPUART1::ptr()).isr.read() };
 
@@ -738,9 +691,9 @@ pub mod lpuart1 {
 
     impl Tx<LPUART1> {
         /// Write the contents of the slice out to the USART
-        pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), Void> {
+        pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), Infallible> {
             for b in bytes.iter() {
-                block!(self.write(*b)).unwrap();
+                block!(self.try_write(*b)).unwrap();
             }
             Ok(())
         }
@@ -761,5 +714,4 @@ pub mod lpuart1 {
         /// WUF active on RXNE.
         Rxne,
     }
-
 }

@@ -1,16 +1,16 @@
 //! Timers
 
-use void::Void;
+use core::convert::Infallible;
 
-use hal::timer::*;
 use cast::{u16, u32};
+use hal::timer::*;
 
-use time::Hertz;
 use rcc::{ClockContext, APB1, APB2};
-use rcc::clocking::LPTimerClkSource;
-use stm32l0x1::{TIM2, TIM21};
+use time::Hertz;
+//use rcc::clocking::LPTimerClkSource;
 #[cfg(any(feature = "STM32L031x4", feature = "STM32L031x6"))]
 use stm32l0x1::TIM22;
+use stm32l0x1::{TIM2, TIM21};
 
 /// 16-bit timer
 pub struct Timer<TIM> {
@@ -36,9 +36,7 @@ macro_rules! impl_timer {
             impl Periodic for Timer<$TIMX> {}
 
             impl Cancel for Timer<$TIMX> {
-                type Error = Void;
-
-                fn cancel(&mut self) -> Result<(), Self::Error> {
+                fn try_cancel(&mut self) -> Result<(), Self::Error> {
                     // disable the timer
                     self.timer.cr1.modify(|_, w| w.cen().clear_bit());
                     Ok(())
@@ -47,8 +45,9 @@ macro_rules! impl_timer {
 
             impl CountDown for Timer<$TIMX> {
                 type Time = Hertz;
+                type Error = Infallible;
 
-                fn start<T>(&mut self, timeout: T)
+                fn try_start<T>(&mut self, timeout: T) -> Result<(), Self::Error>
                 where
                     T: Into<Self::Time>
                 {
@@ -65,11 +64,11 @@ macro_rules! impl_timer {
                     // prescale the timer clock to account for multiples of the 16-bit counter
                     // size
                     let psc = u16((ticks - 1) / (1 << 16)).unwrap();
-                    self.timer.psc.write(|w| unsafe { w.psc().bits(psc) });
+                    self.timer.psc.write(|w| w.psc().bits(psc));
 
                     // now set the auto-reload value
                     let arr = u16(ticks / u32(psc + 1)).unwrap();
-                    self.timer.arr.write(|w| unsafe { w.bits(u32(arr)) });
+                    self.timer.arr.write(|w| unsafe { w.bits(arr.into()) });
 
                     // Trigger an update event to load the prescaler value to the clock
                     self.timer.egr.write(|w| w.ug().set_bit());
@@ -80,9 +79,11 @@ macro_rules! impl_timer {
 
                     // start counter
                     self.timer.cr1.modify(|_, w| w.cen().set_bit());
+
+                    Ok(())
                 }
 
-                fn wait(&mut self) -> nb::Result<(), Void> {
+                fn try_wait(&mut self) -> nb::Result<(), Infallible> {
                     match self.timer.sr.read().uif().bit_is_clear() {
                         true => Err(nb::Error::WouldBlock),
                         false => {
@@ -139,12 +140,12 @@ macro_rules! impl_timer {
     }
 }
 
-impl_timer!{
+impl_timer! {
     TIM2: (tim2, APB1, apb1, tim2en, tim2rst),
     TIM21: (tim21, APB2, apb2, tim21en, tim21rst),
 }
 
 #[cfg(any(feature = "STM32L031x4", feature = "STM32L031x6"))]
-impl_timer!{
+impl_timer! {
     TIM22: (tim22, APB2, apb2, tim22en, tim22rst),
 }

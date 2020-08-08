@@ -163,8 +163,8 @@ impl Rcc {
                 .config()
                 .unwrap()
                 .hsi16
-                .configure(&mut self.icscr, &mut self.cr), //clocking::SysClkSource::HSE => ...
-                                                           //clocking::SysClkSource::PLLCLK => ...
+                .configure(&mut self.icscr, &mut self.cr), //clocking::SysClkSource::HSE => ..=
+                                                           //clocking::SysClkSource::PLLCLK => ..=
         }
         .expect("selected SYSCLK source is not enabled!");
 
@@ -177,12 +177,12 @@ impl Rcc {
             0 => unreachable!(),
             1 => (0b0000, 1),
             2 => (0b1000, 2),
-            3...5 => (0b1001, 4),
-            6...11 => (0b1010, 8),
-            12...39 => (0b1011, 16),
-            40...95 => (0b1100, 64),
-            96...191 => (0b1101, 128),
-            192...383 => (0b1110, 256),
+            3..=5 => (0b1001, 4),
+            6..=11 => (0b1010, 8),
+            12..=39 => (0b1011, 16),
+            40..=95 => (0b1100, 64),
+            96..=191 => (0b1101, 128),
+            192..=383 => (0b1110, 256),
             _ => (0b1111, 512),
         };
 
@@ -193,8 +193,8 @@ impl Rcc {
                 0 => unreachable!(),
                 1 => (0b000, 1),
                 2 => (0b100, 2),
-                3...5 => (0b101, 4),
-                6...11 => (0b110, 8),
+                3..=5 => (0b101, 4),
+                6..=11 => (0b110, 8),
                 _ => (0b111, 16),
             };
 
@@ -205,8 +205,8 @@ impl Rcc {
                 0 => unreachable!(),
                 1 => (0b000, 1),
                 2 => (0b100, 2),
-                3...5 => (0b101, 4),
-                6...11 => (0b110, 8),
+                3..=5 => (0b101, 4),
+                6..=11 => (0b110, 8),
                 _ => (0b111, 16),
             };
 

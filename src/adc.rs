@@ -44,7 +44,7 @@ use hal::adc::{Channel, OneShot};
 use nb;
 use power::{self, VCoreRange};
 use rcc::{self, ClockContext};
-use stm32l0x1::{adc, ADC};
+use stm32l0::stm32l0x1::{adc, ADC};
 
 #[doc(hidden)]
 mod private {
@@ -200,9 +200,7 @@ macro_rules! adc_pin {
             RES: Resolution,
         {
             type ID = u8;
-            fn channel() -> u8 {
-                $i
-            }
+            const CHANNEL: u8 = $i;
         }
     };
 }
@@ -269,8 +267,8 @@ where
 {
     type Error = Error;
 
-    fn read(&mut self, _pin: &mut PIN) -> nb::Result<RES::Word, Error> {
-        let chan = 1 << PIN::channel();
+    fn try_read(&mut self, _pin: &mut PIN) -> nb::Result<RES::Word, Error> {
+        let chan = 1 << PIN::CHANNEL;
 
         // if a conversion is ongoing
         if self.adc().cr.read().adstart().bit_is_set() {
@@ -296,7 +294,7 @@ where
                 // select the channel
                 self.adc()
                     .chselr
-                    .write(|w| unsafe { w.bits(1 << PIN::channel()) });
+                    .write(|w| unsafe { w.bits(1 << PIN::CHANNEL) });
                 self.start();
                 Err(nb::Error::WouldBlock)
             }
@@ -325,7 +323,7 @@ where
         while apb2.enr().read().adcen().bit_is_clear() {}
 
         raw.cfgr1
-            .modify(|_, w| unsafe { MODE::cfg(w).res().bits(RES::BITS).autoff().set_bit() });
+            .modify(|_, w| MODE::cfg(w).res().bits(RES::BITS).autoff().set_bit());
 
         let fadc_limits = (
             140_000,
@@ -343,13 +341,13 @@ where
                 }
 
                 if clk_ctx.apb2().0 <= fadc_limits.1 {
-                    raw.cfgr2.modify(|_, w| unsafe { w.ckmode().bits(0b11) });
+                    raw.cfgr2.modify(|_, w| w.ckmode().bits(0b11));
                     clk_ctx.apb2().0
                 } else if clk_ctx.apb2().0 / 2 <= fadc_limits.1 {
-                    raw.cfgr2.modify(|_, w| unsafe { w.ckmode().bits(0b01) });
+                    raw.cfgr2.modify(|_, w| w.ckmode().bits(0b01));
                     clk_ctx.apb2().0 / 2
                 } else if clk_ctx.apb2().0 / 4 <= fadc_limits.1 {
-                    raw.cfgr2.modify(|_, w| unsafe { w.ckmode().bits(0b10) });
+                    raw.cfgr2.modify(|_, w| w.ckmode().bits(0b10));
                     clk_ctx.apb2().0 / 4
                 } else {
                     panic!("pclk too high to drive adc");
@@ -357,7 +355,7 @@ where
             }
             AdcClkSrc::Hsi16 => {
                 if let Some(f) = clk_ctx.hsi16() {
-                    raw.cfgr2.modify(|_, w| unsafe { w.ckmode().bits(0b00) });
+                    raw.cfgr2.modify(|_, w| w.ckmode().bits(0b00));
 
                     match f.0 / fadc_limits.1 {
                         1 => {
@@ -389,21 +387,21 @@ where
 
         let n = |n| (n / adc_clk * 1000000000.0) as u32;
         if samp_time.subsec_nanos() < n(1.5) {
-            raw.smpr.modify(|_, w| unsafe { w.smpr().bits(0b000) });
+            raw.smpr.modify(|_, w| w.smp().bits(0b000));
         } else if samp_time.subsec_nanos() < n(3.5) {
-            raw.smpr.modify(|_, w| unsafe { w.smpr().bits(0b001) });
+            raw.smpr.modify(|_, w| w.smp().bits(0b001));
         } else if samp_time.subsec_nanos() < n(7.5) {
-            raw.smpr.modify(|_, w| unsafe { w.smpr().bits(0b010) });
+            raw.smpr.modify(|_, w| w.smp().bits(0b010));
         } else if samp_time.subsec_nanos() < n(12.5) {
-            raw.smpr.modify(|_, w| unsafe { w.smpr().bits(0b011) });
+            raw.smpr.modify(|_, w| w.smp().bits(0b011));
         } else if samp_time.subsec_nanos() < n(19.5) {
-            raw.smpr.modify(|_, w| unsafe { w.smpr().bits(0b100) });
+            raw.smpr.modify(|_, w| w.smp().bits(0b100));
         } else if samp_time.subsec_nanos() < n(39.5) {
-            raw.smpr.modify(|_, w| unsafe { w.smpr().bits(0b101) });
+            raw.smpr.modify(|_, w| w.smp().bits(0b101));
         } else if samp_time.subsec_nanos() < n(79.5) {
-            raw.smpr.modify(|_, w| unsafe { w.smpr().bits(0b110) });
+            raw.smpr.modify(|_, w| w.smp().bits(0b110));
         } else if samp_time.subsec_nanos() < n(160.5) {
-            raw.smpr.modify(|_, w| unsafe { w.smpr().bits(0b111) });
+            raw.smpr.modify(|_, w| w.smp().bits(0b111));
         } else {
             panic!("sampling time too long to settle");
         }

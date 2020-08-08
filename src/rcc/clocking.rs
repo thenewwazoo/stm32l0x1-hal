@@ -15,7 +15,6 @@ mod private {
     impl Sealed for super::MediumSpeedInternalRC {}
     impl Sealed for super::HighSpeedInternal16RC {}
     impl Sealed for super::LowSpeedExternalOSC {}
-
 }
 
 /// Types of clocks that have a frequency
@@ -116,9 +115,7 @@ impl MediumSpeedInternalRC {
     /// Configures the MSI to the specified frequency
     pub(crate) fn configure(&self, icscr: &mut rcc::ICSCR, cr: &mut rcc::CR) -> Option<Hertz> {
         if self.enable {
-            icscr
-                .inner()
-                .modify(|_, w| unsafe { w.msirange().bits(self.bits()) });
+            icscr.inner().modify(|_, w| w.msirange().bits(self.bits()));
             cr.inner().modify(|_, w| w.msion().set_bit());
             while cr.inner().read().msirdy().bit_is_clear() {}
         } else {
@@ -214,9 +211,7 @@ impl HighSpeedInternal16RC {
     /// Applies the selection options to the configuration registers and turns the clock on
     pub(crate) fn configure(&self, icscr: &mut rcc::ICSCR, cr: &mut rcc::CR) -> Option<Hertz> {
         if self.enable {
-            icscr
-                .inner()
-                .modify(|_, w| unsafe { w.hsi16trim().bits(0x10) }); // 16 is the default value
+            icscr.inner().modify(|_, w| w.hsi16trim().bits(0x10)); // 16 is the default value
             cr.inner().modify(|_, w| w.hsi16on().set_bit());
             while cr.inner().read().hsi16rdyf().bit_is_clear() {}
 
