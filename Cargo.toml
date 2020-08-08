@@ -1,5 +1,5 @@
 [package]
-authors = ["Brandon Matthews <bmatthews@zipcar.com>"]
+authors = ["Brandon Matthews <thenewwazoo@optimaltour.us>"]
 categories = ["embedded", "hardware-support", "no-std"]
 description = "Peripheral access API for STM32L0x1 microcontrollers"
 keywords = ["arm", "cortex-m", "stm32l0x1", "hal"]
