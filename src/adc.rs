@@ -279,25 +279,23 @@ where
                 // it's the same channel, so block
                 Err(nb::Error::WouldBlock)
             }
-        } else {
-            if self.adc().isr.read().eoc().bit_is_set() {
-                // a conversion is complete!
-                if self.adc().chselr.read().bits() != chan {
-                    // it's not the same channel, so return an error
-                    Err(nb::Error::Other(Error::WrongChannel))
-                } else {
-                    let result = self.adc().dr.read().data().bits();
-                    self.adc().chselr.reset();
-                    Ok(result.into())
-                }
+        } else if self.adc().isr.read().eoc().bit_is_set() {
+            // a conversion is complete!
+            if self.adc().chselr.read().bits() != chan {
+                // it's not the same channel, so return an error
+                Err(nb::Error::Other(Error::WrongChannel))
             } else {
-                // select the channel
-                self.adc()
-                    .chselr
-                    .write(|w| unsafe { w.bits(1 << PIN::CHANNEL) });
-                self.start();
-                Err(nb::Error::WouldBlock)
+                let result = self.adc().dr.read().data().bits();
+                self.adc().chselr.reset();
+                Ok(result.into())
             }
+        } else {
+            // select the channel
+            self.adc()
+                .chselr
+                .write(|w| unsafe { w.bits(1 << PIN::CHANNEL) });
+            self.start();
+            Err(nb::Error::WouldBlock)
         }
     }
 }

@@ -1,7 +1,7 @@
 //! Time units
 
 #![allow(unknown_lints)]
-#![allow(clippy)]
+#![allow(clippy::all)]
 
 /// Bits per second
 #[derive(Clone, Copy)]

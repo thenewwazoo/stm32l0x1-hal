@@ -24,7 +24,7 @@
 //! ```
 
 #![allow(unknown_lints)]
-#![allow(clippy)]
+#![allow(clippy::all)]
 
 use core::convert::Infallible;
 use core::marker::PhantomData;

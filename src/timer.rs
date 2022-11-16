@@ -73,7 +73,7 @@ macro_rules! impl_timer {
                     // Trigger an update event to load the prescaler value to the clock
                     self.timer.egr.write(|w| w.ug().set_bit());
                     // The above line raises an update event which will indicate
-                    // that the timer is already finnished. Since this is not the case,
+                    // that the timer is already finished. Since this is not the case,
                     // it should be cleared
                     self.reset_overflow();
 
@@ -102,7 +102,7 @@ macro_rules! impl_timer {
                     apb.rstr().modify(|_, w| w.$rstr_bit().set_bit());
                     apb.rstr().modify(|_, w| w.$rstr_bit().clear_bit());
 
-                    // timer clock is multiplied by 2 is APBx presc is != 1
+                    // timer clock is multiplied by 2 if APBx presc is != 1
                     let timx_prsc = if clk_ctx.hclk_fclk() == clk_ctx.$apb() { 1 } else { 2 };
 
                     Timer { timer, timeout: timeout.into(), clk_f: clk_ctx.$apb(), timx_prsc }
