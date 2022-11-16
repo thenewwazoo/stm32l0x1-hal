@@ -4,13 +4,15 @@ use core::convert::Infallible;
 
 use cast::{u16, u32};
 use hal::timer::*;
+use nb;
+use void::Void;
 
-use rcc::{ClockContext, APB1, APB2};
-use time::Hertz;
+use crate::rcc::{ClockContext, APB1, APB2};
+use crate::time::Hertz;
 //use rcc::clocking::LPTimerClkSource;
 #[cfg(any(feature = "STM32L031x4", feature = "STM32L031x6"))]
-use stm32l0x1::TIM22;
-use stm32l0x1::{TIM2, TIM21};
+use crate::stm32l0x1::TIM22;
+use crate::stm32l0x1::{TIM2, TIM21};
 
 /// 16-bit timer
 pub struct Timer<TIM> {
@@ -36,7 +38,9 @@ macro_rules! impl_timer {
             impl Periodic for Timer<$TIMX> {}
 
             impl Cancel for Timer<$TIMX> {
-                fn try_cancel(&mut self) -> Result<(), Self::Error> {
+                type Error = Infallible;
+
+                fn cancel(&mut self) -> Result<(), Self::Error> {
                     // disable the timer
                     self.timer.cr1.modify(|_, w| w.cen().clear_bit());
                     Ok(())
@@ -45,9 +49,8 @@ macro_rules! impl_timer {
 
             impl CountDown for Timer<$TIMX> {
                 type Time = Hertz;
-                type Error = Infallible;
 
-                fn try_start<T>(&mut self, timeout: T) -> Result<(), Self::Error>
+                fn start<T>(&mut self, timeout: T)
                 where
                     T: Into<Self::Time>
                 {
@@ -68,7 +71,7 @@ macro_rules! impl_timer {
 
                     // now set the auto-reload value
                     let arr = u16(ticks / u32(psc + 1)).unwrap();
-                    self.timer.arr.write(|w| unsafe { w.bits(arr.into()) });
+                    self.timer.arr.write(|w| w.bits(arr.into()));
 
                     // Trigger an update event to load the prescaler value to the clock
                     self.timer.egr.write(|w| w.ug().set_bit());
@@ -79,11 +82,9 @@ macro_rules! impl_timer {
 
                     // start counter
                     self.timer.cr1.modify(|_, w| w.cen().set_bit());
-
-                    Ok(())
                 }
 
-                fn try_wait(&mut self) -> nb::Result<(), Infallible> {
+                fn wait(&mut self) -> Result<(), nb::Error<Void>> {
                     match self.timer.sr.read().uif().bit_is_clear() {
                         true => Err(nb::Error::WouldBlock),
                         false => {

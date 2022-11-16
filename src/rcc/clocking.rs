@@ -4,9 +4,9 @@
 //! external. Each clock's type implements a `configure` method (not a trait impl) that configures
 //! the clock in the RCC peripheral.
 
-use power;
-use rcc;
-use time::Hertz;
+use crate::power;
+use crate::rcc;
+use crate::time::Hertz;
 
 mod private {
     pub trait Sealed {}

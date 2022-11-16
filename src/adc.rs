@@ -38,12 +38,12 @@
 use core::marker::PhantomData;
 use core::time::Duration;
 
-use gpio::Analog;
-use gpio::{PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PB0, PB1};
+use crate::gpio::Analog;
+use crate::gpio::{PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PB0, PB1};
+use crate::power::{self, VCoreRange};
+use crate::rcc::{self, ClockContext};
 use hal::adc::{Channel, OneShot};
 use nb;
-use power::{self, VCoreRange};
-use rcc::{self, ClockContext};
 use stm32l0::stm32l0x1::{adc, ADC};
 
 #[doc(hidden)]
@@ -200,7 +200,10 @@ macro_rules! adc_pin {
             RES: Resolution,
         {
             type ID = u8;
-            const CHANNEL: u8 = $i;
+
+            fn channel() -> Self::ID {
+                $i
+            }
         }
     };
 }
@@ -267,8 +270,8 @@ where
 {
     type Error = Error;
 
-    fn try_read(&mut self, _pin: &mut PIN) -> nb::Result<RES::Word, Error> {
-        let chan = 1 << PIN::CHANNEL;
+    fn read(&mut self, _pin: &mut PIN) -> nb::Result<RES::Word, Error> {
+        let chan = 1 << PIN::channel();
 
         // if a conversion is ongoing
         if self.adc().cr.read().adstart().bit_is_set() {
@@ -293,7 +296,7 @@ where
             // select the channel
             self.adc()
                 .chselr
-                .write(|w| unsafe { w.bits(1 << PIN::CHANNEL) });
+                .write(|w| unsafe { w.bits(1 << PIN::channel()) });
             self.start();
             Err(nb::Error::WouldBlock)
         }

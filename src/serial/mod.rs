@@ -47,15 +47,15 @@ use core::convert::Infallible;
 use core::marker::PhantomData;
 use core::ptr;
 
-use hal::serial::{Read, Write};
 use nb;
-use stm32l0::stm32l0x1;
-use stm32l0::stm32l0x1::{LPUART1, USART2};
 
-use rcc::clocking::USARTClkSource;
-use rcc::ClockContext;
-use rcc::{APB1, CCIPR};
-use time::Bps;
+use crate::hal::serial::{Read, Write};
+use crate::rcc::clocking::USARTClkSource;
+use crate::rcc::ClockContext;
+use crate::rcc::{APB1, CCIPR};
+use crate::stm32l0::stm32l0x1;
+use crate::stm32l0::stm32l0x1::{LPUART1, USART2};
+use crate::time::Bps;
 
 #[cfg(any(feature = "STM32L011x3", feature = "STM32L011x4"))]
 pub mod stm32l011x3_4;
@@ -363,7 +363,7 @@ macro_rules! hal {
                 impl Read<u8> for Rx<$USARTX> {
                     type Error = Error;
 
-                    fn try_read(&mut self) -> nb::Result<u8, Self::Error> {
+                    fn read(&mut self) -> nb::Result<u8, Self::Error> {
                         // NOTE(unsafe) atomic read with no side effects
                         let isr = unsafe { (*$USARTX::ptr()).isr.read() };
 
@@ -389,7 +389,7 @@ macro_rules! hal {
                 impl Write<u8> for Tx<$USARTX> {
                     type Error = Infallible;
 
-                    fn try_flush(&mut self) -> nb::Result<(), Infallible> {
+                    fn flush(&mut self) -> nb::Result<(), Infallible> {
                         // NOTE(unsafe) atomic read with no side effects
                         let isr = unsafe { (*$USARTX::ptr()).isr.read() };
 
@@ -400,7 +400,7 @@ macro_rules! hal {
                         }
                     }
 
-                    fn try_write(&mut self, byte: u8) -> nb::Result<(), Infallible> {
+                    fn write(&mut self, byte: u8) -> nb::Result<(), Infallible> {
                         // NOTE(unsafe) atomic read with no side effects
                         let isr = unsafe { (*$USARTX::ptr()).isr.read() };
 
@@ -421,7 +421,7 @@ macro_rules! hal {
                     /// Write the contents of the slice out to the USART
                     pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), Infallible> {
                         for b in bytes.iter() {
-                            block!(self.try_write(*b)).unwrap();
+                            block!(self.write(*b)).unwrap();
                         }
                         Ok(())
                     }
@@ -637,7 +637,7 @@ pub mod lpuart1 {
     impl Read<u8> for Rx<LPUART1> {
         type Error = Error;
 
-        fn try_read(&mut self) -> nb::Result<u8, Self::Error> {
+        fn read(&mut self) -> nb::Result<u8, Self::Error> {
             // NOTE(unsafe) atomic read with no side effects
             let isr = unsafe { (*LPUART1::ptr()).isr.read() };
 
@@ -663,7 +663,7 @@ pub mod lpuart1 {
     impl Write<u8> for Tx<LPUART1> {
         type Error = Infallible;
 
-        fn try_flush(&mut self) -> nb::Result<(), Infallible> {
+        fn flush(&mut self) -> nb::Result<(), Infallible> {
             // NOTE(unsafe) atomic read with no side effects
             let isr = unsafe { (*LPUART1::ptr()).isr.read() };
 
@@ -674,7 +674,7 @@ pub mod lpuart1 {
             }
         }
 
-        fn try_write(&mut self, byte: u8) -> nb::Result<(), Infallible> {
+        fn write(&mut self, byte: u8) -> nb::Result<(), Infallible> {
             // NOTE(unsafe) atomic read with no side effects
             let isr = unsafe { (*LPUART1::ptr()).isr.read() };
 
@@ -693,7 +693,7 @@ pub mod lpuart1 {
         /// Write the contents of the slice out to the USART
         pub fn write_all(&mut self, bytes: &[u8]) -> nb::Result<(), Infallible> {
             for b in bytes.iter() {
-                block!(self.try_write(*b)).unwrap();
+                block!(self.write(*b)).unwrap();
             }
             Ok(())
         }

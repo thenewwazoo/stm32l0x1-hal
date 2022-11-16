@@ -37,10 +37,9 @@
 //! let result = i2c.write_read(i2c_addr, &[0x01]).unwrap();
 //! ```
 
-use stm32l0x1::I2C1;
-
+use crate::rcc::{APB1, CCIPR};
+use crate::stm32l0x1::I2C1;
 use hal::blocking::i2c::{Write, WriteRead};
-use rcc::{APB1, CCIPR};
 
 #[doc(hidden)]
 mod private {
@@ -265,7 +264,7 @@ macro_rules! hal {
             impl<PINS> Write for I2c<$I2CX, PINS> {
                 type Error = Error;
 
-                fn try_write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
+                fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
                     // TODO support transfers of more than 255 bytes
                     assert!(bytes.len() < 256 && bytes.len() > 0);
 
@@ -304,7 +303,7 @@ macro_rules! hal {
             impl<PINS> WriteRead for I2c<$I2CX, PINS> {
                 type Error = Error;
 
-                fn try_write_read(
+                fn write_read(
                     &mut self,
                     addr: u8,
                     bytes: &[u8],

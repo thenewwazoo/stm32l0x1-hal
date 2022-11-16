@@ -33,11 +33,11 @@
 
 use core::mem::replace;
 
-use common::Constrain;
-use flash;
-use power;
-use stm32l0x1::{rcc, RCC};
-use time::Hertz;
+use crate::common::Constrain;
+use crate::flash;
+use crate::power;
+use crate::stm32l0x1::{rcc, RCC};
+use crate::time::Hertz;
 
 pub mod clocking;
 

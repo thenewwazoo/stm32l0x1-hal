@@ -29,10 +29,9 @@
 use core::convert::Infallible;
 use core::marker::PhantomData;
 
-use hal::digital::{InputPin, OutputPin, StatefulOutputPin};
-use rcc;
-
-use stm32l0x1;
+use crate::rcc;
+use crate::stm32l0x1;
+use hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 
 #[doc(hidden)]
 mod private {
@@ -330,12 +329,12 @@ macro_rules! impl_pin {
         impl<OMODE, PUMODE> OutputPin for $PXi<Output<OMODE, PUMODE>> {
             type Error = Infallible;
 
-            fn try_set_high(&mut self) -> Result<(), Self::Error> {
+            fn set_high(&mut self) -> Result<(), Self::Error> {
                 // NOTE(unsafe) atomic write to a stateless register
                 Ok(unsafe { (*$GPIOX::ptr()).bsrr.write(|w| w.bits(1 << $i)) })
             }
 
-            fn try_set_low(&mut self) -> Result<(), Self::Error> {
+            fn set_low(&mut self) -> Result<(), Self::Error> {
                 // NOTE(unsafe) atomic write to a stateless register
                 Ok(unsafe { (*$GPIOX::ptr()).bsrr.write(|w| w.bits(1 << (16 + $i))) })
             }
@@ -343,12 +342,12 @@ macro_rules! impl_pin {
 
         impl<OMODE, PUMODE> StatefulOutputPin for $PXi<Output<OMODE, PUMODE>> {
             /// Returns whether high bit is set.
-            fn try_is_set_high(&self) -> Result<bool, Self::Error> {
-                self.try_is_set_low().map(|r| !r)
+            fn is_set_high(&self) -> Result<bool, Self::Error> {
+                self.is_set_low().map(|r| !r)
             }
 
             /// Returns whether low bit is set.
-            fn try_is_set_low(&self) -> Result<bool, Self::Error> {
+            fn is_set_low(&self) -> Result<bool, Self::Error> {
                 // NOTE(unsafe) atomic read with no side effects
                 Ok(unsafe { (*$GPIOX::ptr()).odr.read().bits() & (1 << $i) == 0 })
             }
@@ -357,11 +356,11 @@ macro_rules! impl_pin {
         impl<PUMODE> InputPin for $PXi<Input<PUMODE>> {
             type Error = Infallible;
 
-            fn try_is_high(&self) -> Result<bool, Self::Error> {
-                self.try_is_low().map(|r| !r)
+            fn is_high(&self) -> Result<bool, Self::Error> {
+                self.is_low().map(|r| !r)
             }
 
-            fn try_is_low(&self) -> Result<bool, Self::Error> {
+            fn is_low(&self) -> Result<bool, Self::Error> {
                 Ok(unsafe { (*$GPIOX::ptr()).idr.read().bits() & (1 << $i) == 0 })
             }
         }

@@ -11,10 +11,10 @@
 
 use core::marker::PhantomData;
 
-use common::Constrain;
-use rcc;
-use stm32l0x1::{pwr, PWR};
-use time::Hertz;
+use crate::common::Constrain;
+use crate::rcc;
+use crate::stm32l0x1::{pwr, PWR};
+use crate::time::Hertz;
 
 mod private {
     pub trait Sealed {}

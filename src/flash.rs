@@ -5,19 +5,19 @@
 
 use core::ptr;
 
-use common::Constrain;
+use crate::common::Constrain;
+use crate::power::{self, Power};
+use crate::stm32l0x1::{flash, FLASH};
+use crate::time::Hertz;
 use fhal::flash::{Locking, WriteErase};
-use power::{self, Power};
-use stm32l0x1::{flash, FLASH};
-use time::Hertz;
 
 mod private {
     /// The Sealed trait prevents other crates from implementing helper traits defined here
     pub trait Sealed {}
 
-    impl Sealed for ::power::VCoreRange1 {}
-    impl Sealed for ::power::VCoreRange2 {}
-    impl Sealed for ::power::VCoreRange3 {}
+    impl Sealed for crate::power::VCoreRange1 {}
+    impl Sealed for crate::power::VCoreRange2 {}
+    impl Sealed for crate::power::VCoreRange3 {}
 }
 
 impl Constrain<Flash> for FLASH {
@@ -328,12 +328,12 @@ impl Locking for Flash {
         }
 
         if self.pecr.is_pecr_locked() {
-            self.pekeyr.inner().write(|w| unsafe { w.bits(PEKEY1) });
-            self.pekeyr.inner().write(|w| unsafe { w.bits(PEKEY2) });
+            self.pekeyr.inner().write(|w| w.bits(PEKEY1));
+            self.pekeyr.inner().write(|w| w.bits(PEKEY2));
 
             if self.pecr.is_prgmem_locked() {
-                self.prgkeyr.inner().write(|w| unsafe { w.bits(PRGKEY1) });
-                self.prgkeyr.inner().write(|w| unsafe { w.bits(PRGKEY2) });
+                self.prgkeyr.inner().write(|w| w.bits(PRGKEY1));
+                self.prgkeyr.inner().write(|w| w.bits(PRGKEY2));
             }
         }
     }
