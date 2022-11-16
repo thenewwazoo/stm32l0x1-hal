@@ -1,9 +1,9 @@
 //! Serial devices on the STM32L031x4/STM32L031x6
 
-use stm32l0x1::{LPUART1, USART2};
+use crate::stm32l0x1::{LPUART1, USART2};
 
-use gpio::AF::*;
-use gpio::*;
+use crate::gpio::AF::*;
+use crate::gpio::*;
 
 use super::*;
 
